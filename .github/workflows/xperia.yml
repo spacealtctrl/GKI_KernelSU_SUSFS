@@ -1,117 +1,88 @@
-# .github/workflows/build-sony-pdx234-robust.yml
-
-name: Build Sony Xperia 1V (pdx234) - Robust
+name: Build Sony Xperia 1V (pdx234)
 
 on:
   workflow_dispatch:
     inputs:
       kernelsu_variant:
-        description: "Choose your KernelSU flavor"
+        description: "Select KernelSU Variant"
         required: true
         type: choice
         options: [ "Official", "Next", "MKSU", "SukiSU", "SukiSU-Ultra" ]
         default: SukiSU-Ultra
       kernelsu_branch:
-        description: "Choose the branch (Stable or Dev)"
+        description: "Select KernelSU Branch (Stable=main, Dev=dev)"
         required: true
         type: choice
         options: [ "Stable", "Dev" ]
         default: Dev
       version:
-        description: "Add a custom name to the end of the file (optional)"
+        description: "Custom version name suffix (optional)"
         required: false
         type: string
       use_zram:
-        description: "Add extra ZRAM algorithms?"
+        description: "Enable more ZRAM algorithms?"
         required: true
         type: boolean
         default: true
       use_kpm:
-        description: "Add Kernel Patch Manager (KPM)?"
+        description: "Enable KPM (Kernel Patch Manager)?"
         required: true
         type: boolean
         default: true
       set_defbbr:
-        description: "Make BBR the default network algorithm?"
+        description: "Set BBR as default congestion algorithm?"
         required: true
         type: boolean
         default: false
       get_manager:
-        description: "Also grab the latest manager app (APK)?"
+        description: "Also get the latest KSU manager APK?"
         required: true
         type: boolean
         default: true
 
 env:
+  # Configuration for Sony Xperia 1 V (pdx234)
   SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
   SONY_KERNEL_BRANCH: "kernel-6.1.69-pdx234-240515"
   SONY_DEFCONFIG: "sm8550-pdx234_defconfig"
+  
+  # Standard build environment variables from the user's working configuration
   ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
   CLANG_VERSION: "r510928"
   KPM_URL: "https://github.com/L-J-K-s/KPM.git"
+  KERNEL_IMAGE_NAME: "Image"
 
 jobs:
   build:
     name: Build | ${{ github.event.inputs.kernelsu_variant }} (${{ github.event.inputs.kernelsu_branch }})
-    # Using a specific runner version for maximum stability
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
-      - name: "Step 1: Get our build scripts"
+      - name: "Checkout build repository"
         uses: actions/checkout@v4
         with:
           path: main
 
-      - name: "Step 2: Install the tools needed for building"
+      - name: "Install dependencies"
         run: |
-          set -e
-          echo "Installing build tools, including aria2 for robust downloads..."
-          sudo apt-get update && sudo apt-get install -y \
-            bc build-essential cpio git wget zip unzip libssl-dev \
-            bison flex kmod libelf-dev imagemagick aria2
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential cpio git wget zip unzip libssl-dev bison flex kmod libelf-dev imagemagick
 
-      - name: "Step 3.1: Cache Clang Toolchain"
-        id: cache-clang
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/clang
-          key: ${{ runner.os }}-clang-${{ env.CLANG_VERSION }}
-
-      - name: "Step 3.2: Download and Extract Clang (if not cached)"
-        if: steps.cache-clang.outputs.cache-hit != 'true'
-        shell: bash
+      - name: "Download Clang toolchain"
         run: |
-          set -e
-          echo "No cache found. Grabbing the Clang compiler with aria2c for maximum stability..."
-          CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
-          
-          # Use aria2c for a faster, more reliable download with multiple connections.
-          aria2c -x16 -s16 -k1M --continue=true --max-tries=5 -o clang.zip "$CLANG_URL"
-          
-          # Verify the downloaded file is a valid zip archive before proceeding.
-          if ! zip -T clang.zip &>/dev/null; then
-            echo "::error::Downloaded Clang archive is corrupt, even with aria2. Aborting."
-            exit 1
-          fi
-
           mkdir -p "$GITHUB_WORKSPACE/clang"
+          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip -O clang.zip
           unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
           mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
-          echo "Clang toolchain downloaded and is ready."
 
-      - name: "Step 3.3: Confirm Clang is Ready"
-        run: echo "Clang is ready to use from cache or new download."
-
-      - name: "Step 4: Download the Sony kernel source code"
+      - name: "Download Sony kernel source"
         run: |
-          set -e
-          echo "Cloning the Sony kernel source..."
           git clone --depth=1 -b "${{ env.SONY_KERNEL_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
 
-      - name: "Step 5: Choose and add KernelSU"
+      - name: "Set up KernelSU variant"
+        id: ksu_setup
         run: |
-          set -e
           variant="${{ inputs.kernelsu_variant }}"
           branch_choice="${{ inputs.kernelsu_branch }}"
           KSU_URL=""
@@ -123,49 +94,46 @@ jobs:
           if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then KSU_URL="https://github.com/SukiSue/SukiSU.git"; fi
           if [ "$branch_choice" == "Stable" ]; then KSU_BRANCH="main"; else KSU_BRANCH="dev"; fi
           
-          echo "Adding $variant ($KSU_BRANCH branch)..."
+          echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
+          echo "KSU_BRANCH=$KSU_BRANCH" >> $GITHUB_ENV
+
+      - name: "Integrate KernelSU"
+        run: |
           cd "$GITHUB_WORKSPACE/kernel"
-          git clone --depth=1 -b "$KSU_BRANCH" "$KSU_URL" "$GITHUB_WORKSPACE/KernelSU-source"
+          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$GITHUB_WORKSPACE/KernelSU-source"
           
           if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
             patch_ver="Stable"
-            if [ "$variant" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
+            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
             echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v $patch_ver
           else
             source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
           fi
 
-      - name: "Step 6: Add extra features if you selected them"
+      - name: "Apply optional features"
         run: |
-          set -e
           cd "$GITHUB_WORKSPACE/kernel"
           git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
 
           if [ "${{ inputs.use_kpm }}" == "true" ]; then
-            echo "Adding KPM..."
             git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
             bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
           fi
 
           if [ "${{ inputs.use_zram }}" == "true" ]; then
-            echo "Adding ZRAM patch..."
             git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
           fi
 
           if [ "${{ inputs.set_defbbr }}" == "true" ]; then
-            echo "Adding BBR patch..."
             git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
           fi
           
           if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
-             echo "Adding other core patches..."
              git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
           fi
 
-      - name: "Step 7: Compile the kernel"
+      - name: "Compile the kernel"
         run: |
-          set -e
-          echo "Starting the build..."
           cd "$GITHUB_WORKSPACE/kernel"
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           export ARCH=arm64 && export SUBARCH=arm64
@@ -173,12 +141,9 @@ jobs:
           
           make O=out LLVM=1 LLVM_IAS=1 vendor/qcom/defs/${{ env.SONY_DEFCONFIG }}
           make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
-          echo "Build finished!"
 
-      - name: "Step 8: Package into a flashable zip file"
+      - name: "Package into flashable zip"
         run: |
-          set -e
-          echo "Packaging into zip..."
           git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
           cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/AnyKernel3/"
           cd "$GITHUB_WORKSPACE/AnyKernel3"
@@ -186,7 +151,7 @@ jobs:
           ZIP_NAME="Sony-pdx234-${{ inputs.kernelsu_variant }}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md"
 
-      - name: "Step 9: Upload the finished kernel"
+      - name: "Upload kernel artifacts"
         uses: actions/upload-artifact@v4
         with:
           name: Sony-pdx234-Kernel-${{ github.run_id }}
@@ -200,10 +165,9 @@ jobs:
     if: ${{ inputs.get_manager }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Find the right manager to download"
+      - name: "Set up manager download info"
         id: ksu_setup
         run: |
-          set -e
           variant="${{ inputs.kernelsu_variant }}"
           REPO=""
           if [ "$variant" == "Official" ]; then REPO="tiann/KernelSU"; fi
@@ -212,14 +176,13 @@ jobs:
           if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then REPO="SukiSue/SukiSU"; fi
           echo "KSU_REPO=$REPO" >> $GITHUB_ENV
 
-      - name: "Download the APK from GitHub Releases"
+      - name: "Download manager APK"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
           gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber
           
-      - name: "Upload the APK"
+      - name: "Upload manager APK"
         uses: actions/upload-artifact@v4
         with:
           name: Manager-APK-${{ inputs.kernelsu_variant }}

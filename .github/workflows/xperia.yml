@@ -1,5 +1,3 @@
-# .github/workflows/build-sony-pdx234-robust.yml
-
 name: Build Sony Xperia 1V (pdx234) - Robust
 
 on:
@@ -70,22 +68,36 @@ jobs:
             bc build-essential cpio git wget zip unzip libssl-dev \
             bison flex kmod libelf-dev imagemagick
 
-      - name: "Step 3: Download the compiler (Clang) with Retries"
+      - name: "Step 3: Download the compiler (Clang) with Retries and Integrity Check"
         shell: bash
         run: |
           set -e
           echo "Grabbing the Clang compiler..."
           CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
           
-          # Retry loop for wget
-          for i in {1..5}; do
-            wget -q "$CLANG_URL" -O clang.zip && break
-            echo "wget failed. Retrying ($i/5)..."
+          # Retry loop that alternates between wget and curl, and verifies the download
+          for i in {1..6}; do
+            echo "Attempt $i: Downloading..."
+            # On odd attempts use wget, on even attempts use curl
+            if (( $i % 2 != 0 )); then
+              wget -q "$CLANG_URL" -O clang.zip
+            else
+              curl -sL "$CLANG_URL" -o clang.zip
+            fi
+
+            # Check if the file is a valid zip archive
+            if zip -T clang.zip &>/dev/null; then
+              echo "Download successful and verified."
+              break
+            fi
+            
+            echo "Download failed or file is corrupt. Retrying..."
+            rm -f clang.zip
             sleep 2
           done
           
           if [ ! -f "clang.zip" ]; then
-            echo "::error::Failed to download Clang after 5 attempts."
+            echo "::error::Failed to download a valid Clang archive after multiple attempts."
             exit 1
           fi
 

@@ -1,0 +1,195 @@
+# .github/workflows/build-sony-pdx234-final.yml
+
+name: Build Sony Xperia 1V (pdx234) - Full-Featured
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelsu_variant:
+        description: "Select KernelSU Variant"
+        required: true
+        type: choice
+        options: [ "Official", "Next", "MKSU", "SukiSU", "SukiSU-Ultra" ]
+        default: SukiSU-Ultra
+      kernelsu_branch:
+        description: "Select KernelSU Branch (Stable=main, Dev=dev)"
+        required: true
+        type: choice
+        options: [ "Stable", "Dev" ]
+        default: Dev
+      version:
+        description: "Custom version name suffix (optional)"
+        required: false
+        type: string
+      use_zram:
+        description: "Enable more ZRAM algorithms?"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "Enable KPM (Kernel Patch Manager)?"
+        required: true
+        type: boolean
+        default: true
+      set_defbbr:
+        description: "Set BBR as default congestion algorithm?"
+        required: true
+        type: boolean
+        default: false
+      get_manager:
+        description: "Also get the latest KSU manager APK?"
+        required: true
+        type: boolean
+        default: true
+
+env:
+  # Static Configuration for Sony Xperia 1 V (pdx234)
+  KERNEL_SOURCE_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
+  KERNEL_SOURCE_BRANCH: "kernel-6.1.69-pdx234-240515"
+  KERNEL_DEFCONFIG: "sm8550-pdx234_defconfig"
+  ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
+  CLANG_VERSION: "r510928"
+  KPM_URL: "https://github.com/L-J-K-s/KPM.git"
+  KERNEL_IMAGE_NAME: "Image"
+
+jobs:
+  build:
+    name: Build | ${{ github.event.inputs.kernelsu_variant }} (${{ github.event.inputs.kernelsu_branch }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Build Repository
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y bc build-essential cpio git wget zip unzip libssl-dev bison flex kmod libelf-dev imagemagick
+
+      - name: Download Clang Toolchain
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/clang"
+          wget -q "https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip" -O clang.zip
+          unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
+          mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
+
+      - name: Download Sony Kernel Source
+        run: git clone --depth=1 --single-branch -b "${{ env.KERNEL_SOURCE_BRANCH }}" "${{ env.KERNEL_SOURCE_URL }}" "$GITHUB_WORKSPACE/kernel"
+
+      - name: Set up KernelSU Variant based on User Choice
+        id: ksu_setup
+        run: |
+          variant="${{ inputs.kernelsu_variant }}"
+          branch_choice="${{ inputs.kernelsu_branch }}"
+          KSU_URL=""
+          KSU_BRANCH=""
+
+          if [ "$variant" == "Official" ]; then KSU_URL="https://github.com/tiann/KernelSU.git"; fi
+          if [ "$variant" == "Next" ]; then KSU_URL="https://github.com/SukiSue/WeNext-KernelSU.git"; fi
+          if [ "$variant" == "MKSU" ]; then KSU_URL="https://github.com/MlgmXyysd/MlgmXyysd-KernelSU.git"; fi
+          if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then KSU_URL="https://github.com/SukiSue/SukiSU.git"; fi
+
+          if [ "$branch_choice" == "Stable" ]; then KSU_BRANCH="main"; else KSU_BRANCH="dev"; fi
+          
+          echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
+          echo "KSU_BRANCH=$KSU_BRANCH" >> $GITHUB_ENV
+          echo "Using $variant from $KSU_URL on branch $KSU_BRANCH"
+
+      - name: Integrate Selected KernelSU Variant
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$GITHUB_WORKSPACE/KernelSU-source"
+          
+          if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
+            patch_ver="Stable"
+            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
+            echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v $patch_ver
+          else
+            source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
+          fi
+
+      - name: Apply KPM (if enabled)
+        if: ${{ inputs.use_kpm }}
+        run: |
+          echo "Applying KPM..."
+          cd "$GITHUB_WORKSPACE/kernel"
+          git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
+          bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
+
+      - name: Apply Optional Patches (ZRAM, BBR)
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
+          if [ "${{ inputs.use_zram }}" == "true" ]; then
+            echo "Applying extra ZRAM algorithms patch..."
+            git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
+          fi
+          if [ "${{ inputs.set_defbbr }}" == "true" ]; then
+            echo "Applying BBR default patch..."
+            git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
+          fi
+
+      - name: Apply Core Patches (e.g., SUSFS)
+        run: |
+          echo "Applying other core local patches..."
+          cd "$GITHUB_WORKSPACE/kernel"
+          if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
+             git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
+          fi
+          
+      - name: Build the Kernel
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64 && export SUBARCH=arm64
+          export KBUILD_BUILD_USER="spacealtctrl" && export KBUILD_BUILD_HOST="GitHub-Actions"
+          
+          make O=out LLVM=1 LLVM_IAS=1 vendor/qcom/defs/${{ env.KERNEL_DEFCONFIG }}
+          make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
+
+      - name: Package Kernel into Flashable Zip
+        run: |
+          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
+          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" "$GITHUB_WORKSPACE/AnyKernel3/"
+          cd "$GITHUB_WORKSPACE/AnyKernel3"
+          VERSION_SUFFIX="${{ inputs.version }}"
+          ZIP_NAME="Sony-pdx234-${{ inputs.kernelsu_variant }}-${{ env.KERNEL_SOURCE_BRANCH }}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
+          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sony-pdx234-${{ inputs.kernelsu_variant }}-${{ github.run_id }}
+          path: |
+            $GITHUB_WORKSPACE/AnyKernel3/*.zip
+            $GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+
+  get-manager:
+    name: Get Manager APK
+    needs: build
+    if: ${{ inputs.get_manager }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up KSU Variant based on User Choice
+        id: ksu_setup
+        run: |
+          variant="${{ inputs.kernelsu_variant }}"
+          REPO=""
+          if [ "$variant" == "Official" ]; then REPO="tiann/KernelSU"; fi
+          if [ "$variant" == "Next" ]; then REPO="SukiSue/WeNext-KernelSU"; fi
+          if [ "$variant" == "MKSU" ]; then REPO="MlgmXyysd/MlgmXyysd-KernelSU"; fi
+          if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then REPO="SukiSue/SukiSU"; fi
+          echo "KSU_REPO=$REPO" >> $GITHUB_ENV
+
+      - name: Download Latest Manager APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber
+          
+      - name: Upload Manager Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Manager-APK-${{ inputs.kernelsu_variant }}
+          path: "*.apk"

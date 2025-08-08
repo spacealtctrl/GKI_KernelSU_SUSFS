@@ -80,7 +80,7 @@ jobs:
 
       - name: "Step 3.2: Download and Extract Clang using a Robust Action (if not cached)"
         if: steps.cache-clang.outputs.cache-hit != 'true'
-        uses: dawidd6/action-download-and-extract@v1
+        uses: dawidd6/action-download-and-extract@v1.3.0
         with:
           url: https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip
           path: ${{ github.workspace }}/clang

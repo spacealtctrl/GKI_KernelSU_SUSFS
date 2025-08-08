@@ -1,6 +1,7 @@
-name: Build Sony Xperia 1V (pdx234)
+# .github/workflows/build-sony-pdx234-robust.yml
 
-# This section creates the interactive UI on the Actions page.
+name: Build Sony Xperia 1V (pdx234) - Robust
+
 on:
   workflow_dispatch:
     inputs:
@@ -41,7 +42,6 @@ on:
         type: boolean
         default: true
 
-# These are the fixed settings for this specific device.
 env:
   SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
   SONY_KERNEL_BRANCH: "kernel-6.1.69-pdx234-240515"
@@ -51,16 +51,12 @@ env:
   KPM_URL: "https://github.com/L-J-K-s/KPM.git"
 
 jobs:
-  # This is the main job that builds the kernel.
   build:
     name: Build | ${{ github.event.inputs.kernelsu_variant }} (${{ github.event.inputs.kernelsu_branch }})
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to download the manager APK
+      contents: write
     steps:
-      #
-      # PART 1: GETTING EVERYTHING READY
-      #
       - name: "Step 1: Get our build scripts"
         uses: actions/checkout@v4
         with:
@@ -68,29 +64,45 @@ jobs:
 
       - name: "Step 2: Install the tools needed for building"
         run: |
+          set -e
           echo "Installing build tools..."
           sudo apt-get update && sudo apt-get install -y \
             bc build-essential cpio git wget zip unzip libssl-dev \
             bison flex kmod libelf-dev imagemagick
 
-      - name: "Step 3: Download the compiler (Clang)"
+      - name: "Step 3: Download the compiler (Clang) with Retries"
+        shell: bash
         run: |
+          set -e
           echo "Grabbing the Clang compiler..."
+          CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
+          
+          # Retry loop for wget
+          for i in {1..5}; do
+            wget -q "$CLANG_URL" -O clang.zip && break
+            echo "wget failed. Retrying ($i/5)..."
+            sleep 2
+          done
+          
+          if [ ! -f "clang.zip" ]; then
+            echo "::error::Failed to download Clang after 5 attempts."
+            exit 1
+          fi
+
           mkdir -p "$GITHUB_WORKSPACE/clang"
-          wget -q "https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip" -O clang.zip
           unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
           mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
+          echo "Clang toolchain is ready."
 
       - name: "Step 4: Download the Sony kernel source code"
         run: |
+          set -e
           echo "Cloning the Sony kernel source..."
           git clone --depth=1 -b "${{ env.SONY_KERNEL_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
 
-      #
-      # PART 2: ADDING YOUR CUSTOM FEATURES
-      #
       - name: "Step 5: Choose and add KernelSU"
         run: |
+          set -e
           # Figure out which KernelSU to use based on your choice
           variant="${{ inputs.kernelsu_variant }}"
           branch_choice="${{ inputs.kernelsu_branch }}"
@@ -118,6 +130,7 @@ jobs:
 
       - name: "Step 6: Add extra features if you selected them"
         run: |
+          set -e
           cd "$GITHUB_WORKSPACE/kernel"
           git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
 
@@ -146,11 +159,9 @@ jobs:
              git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
           fi
 
-      #
-      # PART 3: BUILDING AND PACKAGING
-      #
       - name: "Step 7: Compile the kernel"
         run: |
+          set -e
           echo "Starting the build..."
           cd "$GITHUB_WORKSPACE/kernel"
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
@@ -163,6 +174,7 @@ jobs:
 
       - name: "Step 8: Package into a flashable zip file"
         run: |
+          set -e
           echo "Packaging into zip..."
           git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
           cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/AnyKernel3/"
@@ -179,7 +191,6 @@ jobs:
             $GITHUB_WORKSPACE/AnyKernel3/*.zip
             $GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image
 
-  # This job runs after the build to get the manager app.
   get-manager:
     name: Get Manager App
     needs: build
@@ -189,6 +200,7 @@ jobs:
       - name: "Find the right manager to download"
         id: ksu_setup
         run: |
+          set -e
           variant="${{ inputs.kernelsu_variant }}"
           REPO=""
           if [ "$variant" == "Official" ]; then REPO="tiann/KernelSU"; fi
@@ -201,6 +213,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
           gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber
           
       - name: "Upload the APK"

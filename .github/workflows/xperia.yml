@@ -51,7 +51,8 @@ env:
 jobs:
   build:
     name: Build | ${{ github.event.inputs.kernelsu_variant }} (${{ github.event.inputs.kernelsu_branch }})
-    runs-on: ubuntu-latest
+    # Using a specific runner version for maximum stability
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -68,43 +69,39 @@ jobs:
             bc build-essential cpio git wget zip unzip libssl-dev \
             bison flex kmod libelf-dev imagemagick
 
-      - name: "Step 3: Download the compiler (Clang) with Retries and Integrity Check"
+      - name: "Step 3.1: Cache Clang Toolchain"
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/clang
+          key: ${{ runner.os }}-clang-${{ env.CLANG_VERSION }}
+
+      - name: "Step 3.2: Download Clang (if not cached)"
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -e
-          echo "Grabbing the Clang compiler..."
+          echo "No cache found. Grabbing the Clang compiler..."
           CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
           
-          # Retry loop that alternates between wget and curl, and verifies the download
-          for i in {1..6}; do
-            echo "Attempt $i: Downloading..."
-            # On odd attempts use wget, on even attempts use curl
-            if (( $i % 2 != 0 )); then
-              wget -q "$CLANG_URL" -O clang.zip
-            else
-              curl -sL "$CLANG_URL" -o clang.zip
-            fi
-
-            # Check if the file is a valid zip archive
-            if zip -T clang.zip &>/dev/null; then
-              echo "Download successful and verified."
-              break
-            fi
-            
-            echo "Download failed or file is corrupt. Retrying..."
-            rm -f clang.zip
+          for i in {1..5}; do
+            wget -q "$CLANG_URL" -O clang.zip && break
+            echo "wget failed. Retrying ($i/5)..."
             sleep 2
           done
           
-          if [ ! -f "clang.zip" ]; then
-            echo "::error::Failed to download a valid Clang archive after multiple attempts."
+          if ! zip -T clang.zip &>/dev/null; then
+            echo "::error::Failed to download a valid Clang archive after 5 attempts."
             exit 1
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/clang"
           unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
           mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
-          echo "Clang toolchain is ready."
+          echo "Clang toolchain downloaded and is ready."
+
+      - name: "Step 3.3: Confirm Clang is Ready"
+        run: echo "Clang is ready to use from cache or new download."
 
       - name: "Step 4: Download the Sony kernel source code"
         run: |
@@ -115,7 +112,6 @@ jobs:
       - name: "Step 5: Choose and add KernelSU"
         run: |
           set -e
-          # Figure out which KernelSU to use based on your choice
           variant="${{ inputs.kernelsu_variant }}"
           branch_choice="${{ inputs.kernelsu_branch }}"
           KSU_URL=""
@@ -131,7 +127,6 @@ jobs:
           cd "$GITHUB_WORKSPACE/kernel"
           git clone --depth=1 -b "$KSU_BRANCH" "$KSU_URL" "$GITHUB_WORKSPACE/KernelSU-source"
           
-          # Apply the patches
           if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
             patch_ver="Stable"
             if [ "$variant" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
@@ -146,28 +141,24 @@ jobs:
           cd "$GITHUB_WORKSPACE/kernel"
           git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
 
-          # Add KPM if the box was checked
           if [ "${{ inputs.use_kpm }}" == "true" ]; then
             echo "Adding KPM..."
             git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
             bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
           fi
 
-          # Add ZRAM patch if the box was checked
           if [ "${{ inputs.use_zram }}" == "true" ]; then
             echo "Adding ZRAM patch..."
             git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
           fi
 
-          # Add BBR patch if the box was checked
           if [ "${{ inputs.set_defbbr }}" == "true" ]; then
             echo "Adding BBR patch..."
             git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
           fi
           
-          # Add any other core patches (like SUSFS)
-          echo "Adding other core patches..."
           if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
+             echo "Adding other core patches..."
              git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
           fi
 

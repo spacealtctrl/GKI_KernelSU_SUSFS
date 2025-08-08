@@ -1,93 +1,97 @@
-# .github/workflows/build-sony-pdx234.yml
+name: Build Sony Xperia 1V (pdx234)
 
-name: Build Sony Xperia 1V (pdx234) - Interactive
-
+# This section creates the interactive UI on the Actions page.
 on:
   workflow_dispatch:
     inputs:
       kernelsu_variant:
-        description: "Select KernelSU Variant"
+        description: "Choose your KernelSU flavor"
         required: true
         type: choice
         options: [ "Official", "Next", "MKSU", "SukiSU", "SukiSU-Ultra" ]
         default: SukiSU-Ultra
       kernelsu_branch:
-        description: "Select KernelSU Branch (Stable=main, Dev=dev)"
+        description: "Choose the branch (Stable or Dev)"
         required: true
         type: choice
         options: [ "Stable", "Dev" ]
         default: Dev
       version:
-        description: "Custom version name suffix (optional)"
+        description: "Add a custom name to the end of the file (optional)"
         required: false
         type: string
       use_zram:
-        description: "Enable more ZRAM algorithms?"
+        description: "Add extra ZRAM algorithms?"
         required: true
         type: boolean
         default: true
       use_kpm:
-        description: "Enable KPM (Kernel Patch Manager)?"
+        description: "Add Kernel Patch Manager (KPM)?"
         required: true
         type: boolean
         default: true
       set_defbbr:
-        description: "Set BBR as default congestion algorithm?"
+        description: "Make BBR the default network algorithm?"
         required: true
         type: boolean
         default: false
       get_manager:
-        description: "Also get the latest KSU manager APK?"
+        description: "Also grab the latest manager app (APK)?"
         required: true
         type: boolean
         default: true
 
+# These are the fixed settings for this specific device.
 env:
-  # Static Configuration for Sony Xperia 1 V (pdx234)
-  KERNEL_SOURCE_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
-  KERNEL_SOURCE_BRANCH: "kernel-6.1.69-pdx234-240515"
-  KERNEL_DEFCONFIG: "sm8550-pdx234_defconfig"
+  SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
+  SONY_KERNEL_BRANCH: "kernel-6.1.69-pdx234-240515"
+  SONY_DEFCONFIG: "sm8550-pdx234_defconfig"
   ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
   CLANG_VERSION: "r510928"
   KPM_URL: "https://github.com/L-J-K-s/KPM.git"
-  KERNEL_IMAGE_NAME: "Image"
 
 jobs:
+  # This is the main job that builds the kernel.
   build:
     name: Build | ${{ github.event.inputs.kernelsu_variant }} (${{ github.event.inputs.kernelsu_branch }})
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Needed to download the manager APK
     steps:
-      - name: 1.1 - Checkout Build Repository
+      #
+      # PART 1: GETTING EVERYTHING READY
+      #
+      - name: "Step 1: Get our build scripts"
         uses: actions/checkout@v4
         with:
           path: main
 
-      - name: 1.2 - Install Dependencies
+      - name: "Step 2: Install the tools needed for building"
         run: |
-          echo "Installing build dependencies..."
-          sudo apt-get update && sudo apt-get install -y bc build-essential cpio git wget zip unzip libssl-dev bison flex kmod libelf-dev imagemagick
-          echo "Dependencies installed."
+          echo "Installing build tools..."
+          sudo apt-get update && sudo apt-get install -y \
+            bc build-essential cpio git wget zip unzip libssl-dev \
+            bison flex kmod libelf-dev imagemagick
 
-      - name: 1.3 - Download Clang Toolchain
+      - name: "Step 3: Download the compiler (Clang)"
         run: |
-          echo "Downloading Clang toolchain version ${{ env.CLANG_VERSION }}..."
+          echo "Grabbing the Clang compiler..."
           mkdir -p "$GITHUB_WORKSPACE/clang"
           wget -q "https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip" -O clang.zip
           unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
           mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
-          echo "Clang toolchain ready."
 
-      - name: 1.4 - Download Sony Kernel Source
+      - name: "Step 4: Download the Sony kernel source code"
         run: |
-          echo "Cloning Sony kernel source..."
-          git clone --depth=1 --single-branch -b "${{ env.KERNEL_SOURCE_BRANCH }}" "${{ env.KERNEL_SOURCE_URL }}" "$GITHUB_WORKSPACE/kernel"
-          echo "Kernel source downloaded."
+          echo "Cloning the Sony kernel source..."
+          git clone --depth=1 -b "${{ env.SONY_KERNEL_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
 
-      - name: 2.1 - Set up KernelSU Variant based on User Choice
-        id: ksu_setup
+      #
+      # PART 2: ADDING YOUR CUSTOM FEATURES
+      #
+      - name: "Step 5: Choose and add KernelSU"
         run: |
+          # Figure out which KernelSU to use based on your choice
           variant="${{ inputs.kernelsu_variant }}"
           branch_choice="${{ inputs.kernelsu_branch }}"
           KSU_URL=""
@@ -97,98 +101,92 @@ jobs:
           if [ "$variant" == "Next" ]; then KSU_URL="https://github.com/SukiSue/WeNext-KernelSU.git"; fi
           if [ "$variant" == "MKSU" ]; then KSU_URL="https://github.com/MlgmXyysd/MlgmXyysd-KernelSU.git"; fi
           if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then KSU_URL="https://github.com/SukiSue/SukiSU.git"; fi
-
           if [ "$branch_choice" == "Stable" ]; then KSU_BRANCH="main"; else KSU_BRANCH="dev"; fi
           
-          echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
-          echo "KSU_BRANCH=$KSU_BRANCH" >> $GITHUB_ENV
-          echo "SETUP: Using $variant from $KSU_URL on branch $KSU_BRANCH"
-
-      - name: 2.2 - Integrate Selected KernelSU Variant
-        run: |
-          echo "Integrating KernelSU..."
+          echo "Adding $variant ($KSU_BRANCH branch)..."
           cd "$GITHUB_WORKSPACE/kernel"
-          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$GITHUB_WORKSPACE/KernelSU-source"
+          git clone --depth=1 -b "$KSU_BRANCH" "$KSU_URL" "$GITHUB_WORKSPACE/KernelSU-source"
           
+          # Apply the patches
           if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
             patch_ver="Stable"
-            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
-            echo "Applying SukiSU patcher with version: $patch_ver"
+            if [ "$variant" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
             echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v $patch_ver
           else
-            echo "Applying standard KernelSU setup script..."
             source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
           fi
-          echo "KernelSU integration complete."
 
-      - name: 3.1 - Apply KPM (if enabled)
-        if: ${{ inputs.use_kpm }}
-        run: |
-          echo "Applying KPM..."
-          cd "$GITHUB_WORKSPACE/kernel"
-          git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
-          bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
-          echo "KPM applied."
-
-      - name: 3.2 - Apply Optional Patches (ZRAM, BBR)
+      - name: "Step 6: Add extra features if you selected them"
         run: |
           cd "$GITHUB_WORKSPACE/kernel"
           git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
-          if [ "${{ inputs.use_zram }}" == "true" ]; then
-            echo "Applying extra ZRAM algorithms patch..."
-            git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
-          fi
-          if [ "${{ inputs.set_defbbr }}" == "true" ]; then
-            echo "Applying BBR default patch..."
-            git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
+
+          # Add KPM if the box was checked
+          if [ "${{ inputs.use_kpm }}" == "true" ]; then
+            echo "Adding KPM..."
+            git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
+            bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
           fi
 
-      - name: 3.3 - Apply Core Patches (e.g., SUSFS)
-        run: |
-          echo "Applying other core local patches from /patches/core..."
-          cd "$GITHUB_WORKSPACE/kernel"
+          # Add ZRAM patch if the box was checked
+          if [ "${{ inputs.use_zram }}" == "true" ]; then
+            echo "Adding ZRAM patch..."
+            git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
+          fi
+
+          # Add BBR patch if the box was checked
+          if [ "${{ inputs.set_defbbr }}" == "true" ]; then
+            echo "Adding BBR patch..."
+            git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
+          fi
+          
+          # Add any other core patches (like SUSFS)
+          echo "Adding other core patches..."
           if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
              git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
           fi
-          
-      - name: 4.1 - Build the Kernel
+
+      #
+      # PART 3: BUILDING AND PACKAGING
+      #
+      - name: "Step 7: Compile the kernel"
         run: |
-          echo "Starting kernel compilation..."
+          echo "Starting the build..."
           cd "$GITHUB_WORKSPACE/kernel"
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           export ARCH=arm64 && export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl" && export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          make O=out LLVM=1 LLVM_IAS=1 vendor/qcom/defs/${{ env.KERNEL_DEFCONFIG }}
+          make O=out LLVM=1 LLVM_IAS=1 vendor/qcom/defs/${{ env.SONY_DEFCONFIG }}
           make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
-          echo "Kernel compilation finished."
+          echo "Build finished!"
 
-      - name: 4.2 - Package Kernel into Flashable Zip
+      - name: "Step 8: Package into a flashable zip file"
         run: |
-          echo "Packaging with AnyKernel3..."
+          echo "Packaging into zip..."
           git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
-          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" "$GITHUB_WORKSPACE/AnyKernel3/"
+          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/AnyKernel3/"
           cd "$GITHUB_WORKSPACE/AnyKernel3"
           VERSION_SUFFIX="${{ inputs.version }}"
-          ZIP_NAME="Sony-pdx234-${{ inputs.kernelsu_variant }}-${{ env.KERNEL_SOURCE_BRANCH }}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
+          ZIP_NAME="Sony-pdx234-${{ inputs.kernelsu_variant }}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md"
-          echo "Created package: $ZIP_NAME"
 
-      - name: 4.3 - Upload Build Artifacts
+      - name: "Step 9: Upload the finished kernel"
         uses: actions/upload-artifact@v4
         with:
-          name: Sony-pdx234-${{ inputs.kernelsu_variant }}-${{ github.run_id }}
+          name: Sony-pdx234-Kernel-${{ github.run_id }}
           path: |
             $GITHUB_WORKSPACE/AnyKernel3/*.zip
-            $GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}
+            $GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image
 
+  # This job runs after the build to get the manager app.
   get-manager:
-    name: Get Manager APK
+    name: Get Manager App
     needs: build
     if: ${{ inputs.get_manager }}
     runs-on: ubuntu-latest
     steps:
-      - name: Set up KSU Variant based on User Choice
+      - name: "Find the right manager to download"
         id: ksu_setup
         run: |
           variant="${{ inputs.kernelsu_variant }}"
@@ -199,14 +197,13 @@ jobs:
           if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then REPO="SukiSue/SukiSU"; fi
           echo "KSU_REPO=$REPO" >> $GITHUB_ENV
 
-      - name: Download Latest Manager APK
+      - name: "Download the APK from GitHub Releases"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Downloading manager from ${{ env.KSU_REPO }}..."
           gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber
           
-      - name: Upload Manager Artifact
+      - name: "Upload the APK"
         uses: actions/upload-artifact@v4
         with:
           name: Manager-APK-${{ inputs.kernelsu_variant }}

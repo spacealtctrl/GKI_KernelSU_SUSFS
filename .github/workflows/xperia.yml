@@ -1,3 +1,5 @@
+# .github/workflows/build-sony-pdx234-robust.yml
+
 name: Build Sony Xperia 1V (pdx234) - Robust
 
 on:
@@ -76,29 +78,13 @@ jobs:
           path: ${{ github.workspace }}/clang
           key: ${{ runner.os }}-clang-${{ env.CLANG_VERSION }}
 
-      - name: "Step 3.2: Download Clang (if not cached)"
+      - name: "Step 3.2: Download and Extract Clang using a Robust Action (if not cached)"
         if: steps.cache-clang.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -e
-          echo "No cache found. Grabbing the Clang compiler..."
-          CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
-          
-          for i in {1..5}; do
-            wget -q "$CLANG_URL" -O clang.zip && break
-            echo "wget failed. Retrying ($i/5)..."
-            sleep 2
-          done
-          
-          if ! zip -T clang.zip &>/dev/null; then
-            echo "::error::Failed to download a valid Clang archive after 5 attempts."
-            exit 1
-          fi
-
-          mkdir -p "$GITHUB_WORKSPACE/clang"
-          unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
-          mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
-          echo "Clang toolchain downloaded and is ready."
+        uses: dawidd6/action-download-and-extract@v1
+        with:
+          url: https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip
+          path: ${{ github.workspace }}/clang
+          strip: 1
 
       - name: "Step 3.3: Confirm Clang is Ready"
         run: echo "Clang is ready to use from cache or new download."

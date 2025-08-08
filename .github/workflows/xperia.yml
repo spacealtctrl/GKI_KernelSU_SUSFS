@@ -1,3 +1,5 @@
+# .github/workflows/build-sony-pdx234-robust.yml
+
 name: Build Sony Xperia 1V (pdx234) - Robust
 
 on:
@@ -64,10 +66,10 @@ jobs:
       - name: "Step 2: Install the tools needed for building"
         run: |
           set -e
-          echo "Installing build tools..."
+          echo "Installing build tools, including aria2 for robust downloads..."
           sudo apt-get update && sudo apt-get install -y \
             bc build-essential cpio git wget zip unzip libssl-dev \
-            bison flex kmod libelf-dev imagemagick
+            bison flex kmod libelf-dev imagemagick aria2
 
       - name: "Step 3.1: Cache Clang Toolchain"
         id: cache-clang
@@ -81,17 +83,15 @@ jobs:
         shell: bash
         run: |
           set -e
-          echo "No cache found. Grabbing the Clang compiler..."
+          echo "No cache found. Grabbing the Clang compiler with aria2c for maximum stability..."
           CLANG_URL="https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip"
           
-          for i in {1..5}; do
-            wget -q -O clang.zip "$CLANG_URL" && break
-            echo "wget failed. Retrying ($i/5)..."
-            sleep 2
-          done
+          # Use aria2c for a faster, more reliable download with multiple connections.
+          aria2c -x16 -s16 -k1M --continue=true --max-tries=5 -o clang.zip "$CLANG_URL"
           
+          # Verify the downloaded file is a valid zip archive before proceeding.
           if ! zip -T clang.zip &>/dev/null; then
-            echo "::error::Failed to download a valid Clang archive after 5 attempts."
+            echo "::error::Downloaded Clang archive is corrupt, even with aria2. Aborting."
             exit 1
           fi
 

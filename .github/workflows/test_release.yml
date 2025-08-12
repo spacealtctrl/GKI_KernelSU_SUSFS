@@ -346,7 +346,7 @@ jobs:
             git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git suki-tmp
             cd suki-tmp
             KSU_GIT_VERSION=$(git rev-list --count HEAD)
-            KSU_VERSION=$((10000 + KSU_GIT_VERSION + 703))
+            KSU_VERSION=$((10000 + KSU_GIT_VERSION + 700))
             echo "SukiSU version: $KSU_VERSION"
             cd ..
             rm -rf suki-tmp

@@ -1,12 +1,3 @@
-# GitHub Actions Workflow for Building Sony Xperia Kernels
-#
-# This workflow is a more robust and reliable version, designed to address common build failures.
-# Key Improvements:
-# 1.  **Structural Change**: AnyKernel3 is now cloned at the beginning of the process, before the kernel build, to match the user's preferred workflow structure.
-# 2.  **Corrected Permissions**: Includes the necessary permissions for the 'get-manager' job to download release assets.
-# 3.  **Reliable Toolchain**: Uses a specific, well-tested pre-built Clang toolchain instead of relying on system packages.
-# 4.  **Safer Kernel Configuration**: Modifies the kernel .config using the kernel's own scripts (`scripts/config`).
-
 name: Build Sony Xperia Kernel
 
 on:

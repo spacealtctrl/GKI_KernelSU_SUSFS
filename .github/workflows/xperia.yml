@@ -72,58 +72,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod
 
-      - name: Setup Clang (Robust Method)
+      - name: Setup Clang (Git Clone Method)
         run: |
-          echo "Setting up Clang toolchain..."
-          mkdir clang
-
-          # Define primary and fallback URLs based on Android version
-          if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
-            PRIMARY_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r498229b.tar.gz"
-            FALLBACK_URL="https://gitlab.com/PixelOS-Devices/playground_prebuilts_clang_host_linux-x86/-/archive/14.0/playground_prebuilts_clang_host_linux-x86-14.0.tar.gz"
-          else
-            PRIMARY_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r458507d.tar.gz"
-            FALLBACK_URL="https://gitlab.com/PixelOS-Devices/playground_prebuilts_clang_host_linux-x86/-/archive/13.0/playground_prebuilts_clang_host_linux-x86-13.0.tar.gz"
-          fi
+          echo "Setting up Clang toolchain using git clone..."
+          AOSP_MIRROR=https://android.googlesource.com
+          # Using a recent and stable build tools branch suitable for modern kernels
+          BRANCH=main-kernel-build-2024
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
-          # Attempt to download from primary URL
-          echo "--> Attempting download from Google Source: $PRIMARY_URL"
-          wget --tries=3 -q "$PRIMARY_URL" -O clang.tar.gz
-
-          # Check if download was successful and the file is not empty
-          if [ -s clang.tar.gz ]; then
-            echo "Download successful. Extracting..."
-            tar -xzf clang.tar.gz -C clang
-          else
-            echo "Primary download failed or resulted in an empty file. Trying fallback."
-            rm -f clang.tar.gz # Clean up empty file if it exists
-            
-            # Attempt to download from fallback URL
-            echo "--> Attempting download from GitLab Mirror: $FALLBACK_URL"
-            wget --tries=3 -q "$FALLBACK_URL" -O clang.tar.gz
-            
-            if [ -s clang.tar.gz ]; then
-              echo "Fallback download successful. Extracting..."
-              # The gitlab archive has a top-level directory, so we need --strip-components=1
-              tar -xzf clang.tar.gz -C clang --strip-components=1
-            else
-              echo "FATAL: All download attempts failed."
-              exit 1
-            fi
-          fi
-
-          # Clean up the downloaded archive
-          rm -f clang.tar.gz
-
-          # Final check to ensure clang binaries are present
-          if [ -z "$(ls -A clang/bin)" ]; then
-            echo "FATAL: Clang directory is empty after extraction."
-            exit 1
-          fi
-
-          echo "Clang is ready."
+          # Set environment variables for the build steps
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CLANG_PATH=$(pwd)/clang" >> $GITHUB_ENV
+          # The path needs to point to the linux-x86 directory inside the cloned repo
+          echo "CLANG_PATH=$(pwd)/build-tools/linux-x86" >> $GITHUB_ENV
+          # The gcc-toolchain path is also needed for the linker (ld)
+          echo "GCC_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
+
 
       - name: Clone Kernel
         run: |
@@ -237,7 +200,7 @@ jobs:
             [ -z "$DEFCONFIG" ] && DEFCONFIG="gki_defconfig"
           fi
           
-          export PATH="${{ env.CLANG_PATH }}/bin:$PATH"
+          export PATH="${{ env.CLANG_PATH }}/bin:${{ env.GCC_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
@@ -269,7 +232,7 @@ jobs:
       - name: Build Kernel
         run: |
           cd kernel
-          export PATH="${{ env.CLANG_PATH }}/bin:$PATH"
+          export PATH="${{ env.CLANG_PATH }}/bin:${{ env.GCC_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"

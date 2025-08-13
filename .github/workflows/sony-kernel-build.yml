@@ -1,4 +1,4 @@
-name: Build Sony Xperia Kernel
+name: Build Sony Xperia Kernel DA 1
 
 on:
   workflow_dispatch:

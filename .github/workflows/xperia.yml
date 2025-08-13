@@ -96,53 +96,41 @@ jobs:
             "Xperia 1 VI / 5 V (SM8650/SM8550)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1VI-5V" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx245_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SM8650.SOMC.6.1.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx245\ndevice.name2=pdx237\ndevice.name3=Xperia 1 VI\ndevice.name4=Xperia 5 V' >> $GITHUB_ENV
               ;;
             "Xperia 1 V (SM8550)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1V" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV
-              if [[ "${{ inputs.android_version }}" == "android14" ]]; then
-                echo "SONY_BRANCH=aosp/SM8550.SOMC.5.15.r2" >> $GITHUB_ENV
-              else
-                echo "SONY_BRANCH=aosp/SM8550.SOMC.5.15.r1" >> $GITHUB_ENV
-              fi
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx234\ndevice.name2=Xperia 1 V' >> $GITHUB_ENV
               ;;
             "Xperia 1 IV / 5 IV (SM8450)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1IV-5IV" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SM8450.SOMC.5.10.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=pdx225\ndevice.name3=Xperia 1 IV\ndevice.name4=Xperia 5 IV' >> $GITHUB_ENV
               ;;
             "Xperia PRO-I / 1 III / 5 III (SM8350)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I-1III-5III" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SM8350.SOMC.5.4.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=pdx213\ndevice.name3=pdx214\ndevice.name4=Xperia PRO-I\ndevice.name5=Xperia 1 III\ndevice.name6=Xperia 5 III' >> $GITHUB_ENV
               ;;
             "Xperia 1 II / 5 II (SM8250)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1II-5II" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SM8250.SOMC.4.19.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=pdx206\ndevice.name3=Xperia 1 II\ndevice.name4=Xperia 5 II' >> $GITHUB_ENV
               ;;
             "Xperia 1 / 5 (SM8150)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1-5" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx201_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SM8150.SOMC.4.14.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx201\ndevice.name2=pdx194\ndevice.name3=Xperia 1\ndevice.name4=Xperia 5' >> $GITHUB_ENV
               ;;
             "Xperia XZ3 (SDM845)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-XZ3" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx212_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SDM845.LA.2.0.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx212\ndevice.name2=Xperia XZ3' >> $GITHUB_ENV
               ;;
             "Xperia XZ2 / XZ2 Premium / XZ2 Compact (SDM845)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-XZ2-Series" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx204_defconfig" >> $GITHUB_ENV
-              echo "SONY_BRANCH=aosp/SDM845.LA.2.0.r1" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx204\ndevice.name2=pdx205\ndevice.name3=pdx207\ndevice.name4=Xperia XZ2\ndevice.name5=Xperia XZ2 Premium\ndevice.name6=Xperia XZ2 Compact' >> $GITHUB_ENV
               ;;
           esac
@@ -160,11 +148,10 @@ jobs:
 
       - name: Clone Kernel
         run: |
-          echo "Attempting to clone Sony kernel from specific branch: ${{ env.SONY_BRANCH }}"
-          git clone --depth=1 -b "${{ env.SONY_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" kernel || {
-            echo "::error::Specific branch '${{ env.SONY_BRANCH }}' not found. This is a fatal error."
-            exit 1
-          }
+          echo "Cloning Sony kernel from default branch..."
+          # The public GitHub repo does not have the specific AOSP branches.
+          # Cloning the default branch is the most reliable method as it contains all the necessary defconfigs.
+          git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
 
       - name: Integrate KernelSU

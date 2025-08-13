@@ -159,14 +159,11 @@ jobs:
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "CLANG_PATH=$(pwd)/build-tools/linux-x86" >> $GITHUB_ENV
-          echo "GCC_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
+          echo "TOOLCHAIN_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
 
       - name: Clone Kernel
         run: |
           echo "Cloning Sony kernel from default branch..."
-          # The public GitHub repo does not have the specific AOSP branches.
-          # Cloning the default branch is the most reliable method as it contains all the necessary defconfigs.
           git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
 
@@ -202,10 +199,26 @@ jobs:
           cd kernel
           git clone --depth=1 "${{ env.SUSFS_URL }}" ../susfs
           
-          if [ -f "../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
-            patch -p1 < "../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || git apply "../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "SUSFS patch may have issues"
+          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*")
+          if [ -z "$KSU_DIR" ]; then
+            echo "::error::KernelSU source directory not found!"
+            exit 1
           fi
+          echo "Found KernelSU directory at: $KSU_DIR"
           
+          cd "$KSU_DIR"
+
+          echo "Applying SUSFS patch inside $KSU_DIR..."
+          if [ -f "../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+            patch -p1 --forward --fuzz=3 < "../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || {
+              echo "::warning::SUSFS patch failed to apply. This might be expected for some KernelSU versions."
+            }
+          else
+            echo "::warning::SUSFS patch file not found."
+          fi
+
+          cd ..
+
           if [ -d "../susfs/ksu_module_susfs" ]; then
             cp -r "../susfs/ksu_module_susfs" ./
           fi
@@ -246,14 +259,13 @@ jobs:
         run: |
           cd kernel
           
-          export PATH="${{ env.CLANG_PATH }}/bin:${{ env.GCC_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
           echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
-          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
+          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
           
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
             echo "CONFIG_KSU_SUSFS=y" >> out/.config
@@ -278,13 +290,13 @@ jobs:
       - name: Build Kernel
         run: |
           cd kernel
-          export PATH="${{ env.CLANG_PATH }}/bin:${{ env.GCC_PATH }}:$PATH"
+          
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
+          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
             echo "Build failed"
             exit 1
           }

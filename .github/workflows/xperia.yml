@@ -72,7 +72,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod
 
-      - name: Setup Clang with Fallback
+      - name: Setup Clang (Robust Method)
         run: |
           echo "Setting up Clang toolchain..."
           mkdir clang
@@ -86,22 +86,38 @@ jobs:
             FALLBACK_URL="https://gitlab.com/PixelOS-Devices/playground_prebuilts_clang_host_linux-x86/-/archive/13.0/playground_prebuilts_clang_host_linux-x86-13.0.tar.gz"
           fi
           
-          echo "--> Attempt 1: Download from Google Source with retries"
-          if wget --tries=3 -q "$PRIMARY_URL" -O - | tar -xz -C clang; then
-              echo "Google Source download successful."
+          # Attempt to download from primary URL
+          echo "--> Attempting download from Google Source: $PRIMARY_URL"
+          wget --tries=3 -q "$PRIMARY_URL" -O clang.tar.gz
+
+          # Check if download was successful and the file is not empty
+          if [ -s clang.tar.gz ]; then
+            echo "Download successful. Extracting..."
+            tar -xzf clang.tar.gz -C clang
           else
-              echo "Google Source download failed. Cleaning up and attempting fallback from GitLab mirror."
-              rm -rf clang/*
-              
-              echo "--> Attempt 2: Download from GitLab mirror"
-              wget --tries=3 -q "$FALLBACK_URL" -O clang.tar.gz
+            echo "Primary download failed or resulted in an empty file. Trying fallback."
+            rm -f clang.tar.gz # Clean up empty file if it exists
+            
+            # Attempt to download from fallback URL
+            echo "--> Attempting download from GitLab Mirror: $FALLBACK_URL"
+            wget --tries=3 -q "$FALLBACK_URL" -O clang.tar.gz
+            
+            if [ -s clang.tar.gz ]; then
+              echo "Fallback download successful. Extracting..."
+              # The gitlab archive has a top-level directory, so we need --strip-components=1
               tar -xzf clang.tar.gz -C clang --strip-components=1
-              rm -f clang.tar.gz
+            else
+              echo "FATAL: All download attempts failed."
+              exit 1
+            fi
           fi
+
+          # Clean up the downloaded archive
+          rm -f clang.tar.gz
 
           # Final check to ensure clang binaries are present
           if [ -z "$(ls -A clang/bin)" ]; then
-            echo "FATAL: All methods for obtaining Clang failed."
+            echo "FATAL: Clang directory is empty after extraction."
             exit 1
           fi
 

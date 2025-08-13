@@ -162,7 +162,7 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
-          echo "$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_PATH
+          echo "TOOLCHAIN_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
       - name: Clone Kernel
@@ -288,20 +288,19 @@ jobs:
         run: |
           cd kernel
           
+          export PATH="${{ env.TOOLCHAIN_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
+          echo "--- Verifying Toolchain ---"
+          which clang
+          which ld.lld
+          echo "--------------------------"
+
           echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
-          make O=out \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               CC=clang \
-               LD=ld.lld \
-               CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
-               CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
-               ${{ env.KERNEL_DEFCONFIG }}
+          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
           
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
             echo "CONFIG_KSU_SUSFS=y" >> out/.config
@@ -327,19 +326,13 @@ jobs:
         run: |
           cd kernel
           
+          export PATH="${{ env.TOOLCHAIN_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          make O=out \
-               LLVM=1 \
-               LLVM_IAS=1 \
-               CC=clang \
-               LD=ld.lld \
-               CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
-               CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
-               -j$(nproc) || {
+          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
             echo "Build failed"
             exit 1
           }

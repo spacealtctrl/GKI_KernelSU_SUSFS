@@ -72,16 +72,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod
 
-      - name: Setup Clang
+      - name: Setup Clang with Fallback
         run: |
-          if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
-            CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r498229b.tar.gz"
-          else
-            CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r458507d.tar.gz"
-          fi
-          echo "Setting up Clang from $CLANG_URL"
+          echo "Setting up Clang toolchain..."
           mkdir clang
-          wget -q "$CLANG_URL" -O - | tar -xz -C clang
+
+          # Define primary and fallback URLs based on Android version
+          if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
+            PRIMARY_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r498229b.tar.gz"
+            FALLBACK_URL="https://gitlab.com/PixelOS-Devices/playground_prebuilts_clang_host_linux-x86/-/archive/14.0/playground_prebuilts_clang_host_linux-x86-14.0.tar.gz"
+          else
+            PRIMARY_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r458507d.tar.gz"
+            FALLBACK_URL="https://gitlab.com/PixelOS-Devices/playground_prebuilts_clang_host_linux-x86/-/archive/13.0/playground_prebuilts_clang_host_linux-x86-13.0.tar.gz"
+          fi
+          
+          echo "--> Attempt 1: Download from Google Source with retries"
+          if wget --tries=3 -q "$PRIMARY_URL" -O - | tar -xz -C clang; then
+              echo "Google Source download successful."
+          else
+              echo "Google Source download failed. Cleaning up and attempting fallback from GitLab mirror."
+              rm -rf clang/*
+              
+              echo "--> Attempt 2: Download from GitLab mirror"
+              wget --tries=3 -q "$FALLBACK_URL" -O clang.tar.gz
+              tar -xzf clang.tar.gz -C clang --strip-components=1
+              rm -f clang.tar.gz
+          fi
+
+          # Final check to ensure clang binaries are present
+          if [ -z "$(ls -A clang/bin)" ]; then
+            echo "FATAL: All methods for obtaining Clang failed."
+            exit 1
+          fi
+
+          echo "Clang is ready."
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CLANG_PATH=$(pwd)/clang" >> $GITHUB_ENV
 

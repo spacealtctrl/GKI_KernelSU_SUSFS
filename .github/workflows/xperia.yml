@@ -1,4 +1,7 @@
-name: Build Sony Xperia 1V (pdx234) with SukiSU Ultra + SUSFS + KPM
+- name: "Upload build artifacts"
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sony-Xperia1V-Kernel-$name: Build Sony Xperia 1V (pdx234) with SukiSU Ultra + SUSFS + KPM
 
 on:
   workflow_dispatch:
@@ -80,22 +83,73 @@ jobs:
 
       - name: "Setup Clang toolchain"
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/clang"
-          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip -O clang.zip
-          unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
-          mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
-          rm -rf clang.zip "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"
+          echo "Current working directory: $(pwd)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "Creating clang directory..."
+          
+          # Use absolute path and ensure directory creation
+          CLANG_DIR="$HOME/clang"
+          mkdir -p "$CLANG_DIR" || {
+            echo "Failed to create clang directory, trying alternative..."
+            CLANG_DIR="$(pwd)/clang"
+            mkdir -p "$CLANG_DIR"
+          }
+          
+          echo "Clang directory created at: $CLANG_DIR"
+          
+          echo "Downloading Proton Clang..."
+          wget -q --timeout=30 --tries=3 \
+            "https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip" \
+            -O clang.zip || {
+            echo "Failed to download Proton Clang, trying alternative source..."
+            wget -q --timeout=30 --tries=3 \
+              "https://github.com/kdrag0n/proton-clang/releases/download/${{ env.CLANG_VERSION }}/proton-clang-${{ env.CLANG_VERSION }}.tar.gz" \
+              -O clang.tar.gz && {
+              tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1
+              rm -f clang.tar.gz
+              echo "CLANG_PATH=$CLANG_DIR" >> $GITHUB_ENV
+              exit 0
+            }
+            exit 1
+          }
+          
+          echo "Extracting Clang..."
+          unzip -q clang.zip -d "$CLANG_DIR"
+          
+          # Move contents to proper location
+          if [ -d "$CLANG_DIR/proton-clang-${{ env.CLANG_VERSION }}" ]; then
+            mv "$CLANG_DIR/proton-clang-${{ env.CLANG_VERSION }}"/* "$CLANG_DIR/"
+            rm -rf "$CLANG_DIR/proton-clang-${{ env.CLANG_VERSION }}"
+          fi
+          
+          rm -f clang.zip
+          echo "CLANG_PATH=$CLANG_DIR" >> $GITHUB_ENV
+          echo "Clang setup completed at: $CLANG_DIR"
+          ls -la "$CLANG_DIR/bin/" | head -5
 
       - name: "Clone Sony kernel source"
         run: |
           echo "Cloning Sony kernel repository..."
-          git clone --depth=1 -b "${{ inputs.android_version }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
-          cd "$GITHUB_WORKSPACE/kernel"
-          echo "Repository cloned successfully"
+          KERNEL_DIR="$HOME/kernel"
+          git clone --depth=1 -b "${{ inputs.android_version }}" "${{ env.SONY_KERNEL_URL }}" "$KERNEL_DIR" || {
+            echo "Failed with specified branch, trying without branch specification..."
+            git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" "$KERNEL_DIR"
+            cd "$KERNEL_DIR"
+            echo "Available branches:"
+            git branch -a | grep -E "(android13|android14|5\.15)" | head -10
+            # Try to checkout the desired branch
+            git checkout "${{ inputs.android_version }}" 2>/dev/null || {
+              echo "Branch ${{ inputs.android_version }} not found, using default branch"
+              git branch -a
+            }
+          }
+          
+          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
+          cd "$KERNEL_DIR"
+          echo "Repository cloned successfully to: $KERNEL_DIR"
+          echo "Current branch: $(git branch --show-current)"
           echo "Checking for device-specific files..."
-          ls -la arch/arm64/configs/ | grep -E "(pdx234|yodo)" || echo "No pdx234 specific configs found"
-          echo "Available configs:"
-          find arch/arm64/configs -name "*pdx234*" -o -name "*yodo*" -o -name "*aosp*" | head -10
+          find arch/arm64/configs -name "*pdx234*" -o -name "*yodo*" -o -name "*aosp*" | head -10 || echo "No specific configs found yet"
 
       - name: "Set up KernelSU variant"
         run: |
@@ -123,25 +177,26 @@ jobs:
 
       - name: "Integrate KernelSU"
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
+          cd "$KERNEL_DIR"
           git config --global user.name "spacealtctrl"
           git config --global user.email "actions@github.com"
           
           echo "Cloning KernelSU source..."
-          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$GITHUB_WORKSPACE/KernelSU-source"
+          KSU_DIR="$HOME/KernelSU-source"
+          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$KSU_DIR"
           
           # Apply KernelSU patches
-          if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
+          if [ -f "$KSU_DIR/kernel-patch.sh" ]; then
             echo "Applying KernelSU patches using kernel-patch.sh..."
             patch_ver="Stable"
             if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then
               patch_ver="Ultra"
             fi
-            echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v "$patch_ver"
+            echo "Y" | bash "$KSU_DIR/kernel-patch.sh" -v "$patch_ver"
           else
             echo "Using setup.sh method..."
-            if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh" ]; then
-              source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
+            if [ -f "$KSU_DIR/kernel/setup.sh" ]; then
+              source "$KSU_DIR/kernel/setup.sh"
             else
               echo "Manual KernelSU setup..."
               # Manual setup as fallback
@@ -152,40 +207,42 @@ jobs:
       - name: "Integrate SUSFS"
         if: ${{ inputs.use_susfs }}
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
+          cd "$KERNEL_DIR"
           echo "Integrating SUSFS for advanced root hiding..."
           
           # Clone SUSFS
-          git clone --depth=1 "${{ env.SUSFS_URL }}" "$GITHUB_WORKSPACE/susfs"
+          SUSFS_DIR="$HOME/susfs"
+          git clone --depth=1 "${{ env.SUSFS_URL }}" "$SUSFS_DIR"
           
           # Apply SUSFS kernel patches
-          if [ -f "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+          if [ -f "$SUSFS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
             echo "Applying SUSFS kernel patch..."
-            patch -p1 < "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || {
+            patch -p1 < "$SUSFS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || {
               echo "Direct patch failed, trying with git apply..."
-              git apply "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "SUSFS patch application may have issues, continuing..."
+              git apply "$SUSFS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "SUSFS patch application may have issues, continuing..."
             }
           fi
           
           # Copy SUSFS module files if available
-          if [ -d "$GITHUB_WORKSPACE/susfs/ksu_module_susfs" ]; then
+          if [ -d "$SUSFS_DIR/ksu_module_susfs" ]; then
             echo "Copying SUSFS module files..."
-            cp -r "$GITHUB_WORKSPACE/susfs/ksu_module_susfs" ./
+            cp -r "$SUSFS_DIR/ksu_module_susfs" ./
           fi
 
       - name: "Apply KPM (Kernel Patch Manager)"
         if: ${{ inputs.use_kpm }}
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
+          cd "$KERNEL_DIR"
           echo "Applying KPM (Kernel Patch Manager)..."
-          git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
+          KPM_DIR="$HOME/KPM"
+          git clone --depth=1 "${{ env.KPM_URL }}" "$KPM_DIR"
           
-          if [ -f "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" ]; then
-            bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
+          if [ -f "$KPM_DIR/patch-kernel.sh" ]; then
+            bash "$KPM_DIR/patch-kernel.sh" --apply
           else
             echo "KPM patch script not found, manual application..."
-            if [ -d "$GITHUB_WORKSPACE/KPM/patches" ]; then
-              for patch in "$GITHUB_WORKSPACE/KPM/patches"/*.patch; do
+            if [ -d "$KPM_DIR/patches" ]; then
+              for patch in "$KPM_DIR/patches"/*.patch; do
                 [ -f "$patch" ] && git apply "$patch" || echo "Failed to apply $(basename "$patch")"
               done
             fi
@@ -193,7 +250,7 @@ jobs:
 
       - name: "Apply additional patches"
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
+          cd "$KERNEL_DIR"
           
           # Apply LXC patches if requested
           if [ "${{ inputs.use_lxc }}" == "true" ]; then
@@ -213,7 +270,7 @@ jobs:
 
       - name: "Configure kernel"
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
+          cd "$KERNEL_DIR"
           
           # Find and use the correct defconfig
           DEFCONFIG=""
@@ -228,7 +285,7 @@ jobs:
           fi
           
           echo "Using defconfig: $DEFCONFIG"
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export PATH="$CLANG_PATH/bin:$PATH"
           export ARCH=arm64 && export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
@@ -264,8 +321,8 @@ jobs:
 
       - name: "Build kernel"
         run: |
-          cd "$GITHUB_WORKSPACE/kernel"
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          cd "$KERNEL_DIR"
+          export PATH="$CLANG_PATH/bin:$PATH"
           export ARCH=arm64 && export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
@@ -283,12 +340,13 @@ jobs:
       - name: "Prepare AnyKernel3 package"
         run: |
           # Clone AnyKernel3
-          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
-          cd "$GITHUB_WORKSPACE/AnyKernel3"
+          AK3_DIR="$HOME/AnyKernel3"
+          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$AK3_DIR"
+          cd "$AK3_DIR"
           
           # Remove existing files and add our kernel
           rm -rf .git* README.md modules patch ramdisk tools anykernel.sh
-          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" ./
+          cp "$KERNEL_DIR/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" ./
           
           # Create custom anykernel.sh for Sony Xperia 1V
           cat > anykernel.sh << 'EOL'
@@ -347,8 +405,8 @@ jobs:
         with:
           name: Sony-Xperia1V-Kernel-${{ github.run_id }}
           path: |
-            ${{ github.workspace }}/AnyKernel3/*.zip
-            ${{ github.workspace }}/kernel/out/arch/arm64/boot/Image
+            ${{ env.AK3_DIR }}/*.zip
+            ${{ env.KERNEL_DIR }}/out/arch/arm64/boot/Image
 
   get-manager:
     name: Download KernelSU Manager
@@ -393,12 +451,21 @@ jobs:
       - name: "Download SUSFS module"
         run: |
           echo "Downloading SUSFS userspace module..."
-          git clone --depth=1 "${{ env.SUSFS_MODULE_URL }}" susfs-module
-          cd susfs-module
+          SUSFS_MODULE_DIR="$HOME/susfs-module"
+          git clone --depth=1 "${{ env.SUSFS_MODULE_URL }}" "$SUSFS_MODULE_DIR" || {
+            echo "Failed to clone SUSFS module, trying alternative download..."
+            mkdir -p "$SUSFS_MODULE_DIR"
+            cd "$SUSFS_MODULE_DIR"
+            wget -q https://github.com/sidex15/susfs4ksu_su_module/releases/latest/download/susfs4ksu_module.zip -O susfs_module.zip || echo "No module found"
+          }
+          
+          cd "$SUSFS_MODULE_DIR"
           if [ -f "*.zip" ]; then
-            cp *.zip ../
+            cp *.zip ~/
           elif [ -d "release" ]; then
-            cp release/*.zip ../ 2>/dev/null || echo "No release files found"
+            cp release/*.zip ~/ 2>/dev/null || echo "No release files found"
+          elif [ -f "susfs_module.zip" ]; then
+            cp susfs_module.zip ~/
           fi
           
       - name: "Upload SUSFS module"
@@ -406,4 +473,4 @@ jobs:
         if: always()
         with:
           name: SUSFS-Module-${{ github.run_id }}
-          path: "*.zip"
+          path: "~/*.zip"

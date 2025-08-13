@@ -1,136 +1,478 @@
-# .github/workflows/build-kernel.yml
-# A single, all-in-one workflow for building a kernel for a chosen Xperia device from your forked repository.
-
-name: Build Xperia Kernel
+name: Build Sony Xperia Kernel
 
 on:
   workflow_dispatch:
     inputs:
-      device_choice:
-        description: 'Select the Xperia device to build for'
+      device:
+        description: "Xperia Model"
         required: true
         type: choice
         options:
           - "Xperia 1 VI (pdx245)"
-          - "Xperia 10 VI (pdx246)"
           - "Xperia 5 V (pdx237)"
           - "Xperia 1 V (pdx234)"
-          - "Xperia 10 V (pdx235)"
           - "Xperia 1 IV (pdx223)"
-          - "Xperia 5 IV (pdx224)"
-          - "Xperia 10 IV (pdx225)"
+          - "Xperia 5 IV (pdx225)"
           - "Xperia PRO-I (pdx215)"
-          - "Xperia 1 III (pdx215)"
+          - "Xperia 1 III (pdx213)"
           - "Xperia 5 III (pdx214)"
-          - "Xperia 10 III (pdx213)"
           - "Xperia 1 II (pdx203)"
           - "Xperia 5 II (pdx206)"
-          - "Xperia 10 II (pdx201)"
-      kernel_branch:
-        description: 'Kernel branch to build from'
+        default: "Xperia 1 V (pdx234)"
+      kernelsu_variant:
+        description: "KernelSU Variant"
         required: true
+        type: choice
+        options: ["Official", "Next", "MKSU", "SukiSU", "SukiSU-Ultra"]
+        default: "SukiSU-Ultra"
+      kernelsu_branch:
+        description: "KernelSU Branch"
+        required: true
+        type: choice
+        options: ["Stable", "Dev"]
+        default: "Dev"
+      version:
+        description: "Version Suffix (optional)"
+        required: false
         type: string
-        default: 'aosp/LA.UM.9.14.r1'
+      use_susfs:
+        description: "Enable SUSFS?"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "Enable KPM?"
+        required: true
+        type: boolean
+        default: true
+      use_lxc:
+        description: "Enable LXC?"
+        required: true
+        type: boolean
+        default: false
+      get_manager:
+        description: "Download Manager APK?"
+        required: true
+        type: boolean
+        default: true
+
+env:
+  SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel.git"
+  KERNEL_IMAGE_NAME: "Image"
+  ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
+  KPM_URL: "https://github.com/backslashxx/KPM.git"
+  SUSFS_URL: "https://gitlab.com/simonpunk/susfs4ksu.git"
+  SUSFS_MODULE_URL: "https://github.com/sidex15/susfs4ksu_su_module.git"
 
 jobs:
   build:
-    name: Build for ${{ inputs.device_choice }}
-    runs-on: ubuntu-latest
+    name: "Build Kernel"
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential ccache curl git libssl-dev lzop make zip
-
-      - name: Set up Defconfig Mapping
-        id: map_defconfig
-        run: |
-          # This step maps the user-friendly name to the technical defconfig filename.
-          # The result is saved to a GitHub environment variable for later use.
-          case "${{ inputs.device_choice }}" in
-            "Xperia 1 VI (pdx245)")   echo "DEFCONFIG=aosp_pdx245_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 10 VI (pdx246)")  echo "DEFCONFIG=aosp_pdx246_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 5 V (pdx237)")   echo "DEFCONFIG=aosp_pdx237_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 1 V (pdx234)")   echo "DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 10 V (pdx235)")  echo "DEFCONFIG=aosp_pdx235_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 1 IV (pdx223)")   echo "DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 5 IV (pdx224)")   echo "DEFCONFIG=aosp_pdx224_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 10 IV (pdx225)")  echo "DEFCONFIG=aosp_pdx225_defconfig" >> $GITHUB_ENV ;;
-            "Xperia PRO-I (pdx215)")  echo "DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 1 III (pdx215)")  echo "DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 5 III (pdx214)")  echo "DEFCONFIG=aosp_pdx214_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 10 III (pdx213)") echo "DEFCONFIG=aosp_pdx213_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 1 II (pdx203)")   echo "DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 5 II (pdx206)")   echo "DEFCONFIG=aosp_pdx206_defconfig" >> $GITHUB_ENV ;;
-            "Xperia 10 II (pdx201)")  echo "DEFCONFIG=aosp_pdx201_defconfig" >> $GITHUB_ENV ;;
-            *) echo "Invalid device selected"; exit 1 ;;
-          esac
-
-      - name: Cache AOSP Clang Toolchain
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: toolchain
-          key: ${{ runner.os }}-aosp-clang-r510928
-
-      - name: Setup Toolchain (AOSP Clang)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: |
-          echo "Toolchain cache not found. Cloning AOSP Clang..."
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/clang-r510928/ toolchain
-
-      - name: Setup ccache
-        run: |
-          ccache --set-config=cache_dir=${{ github.workspace }}/.ccache
-          ccache -M 5G
-          ccache -z
-
-      - name: Cache ccache directory
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ env.DEFCONFIG }}-${{ github.ref }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-${{ env.DEFCONFIG }}-
-
-      - name: Checkout Kernel Source
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          repository: spacealtctrl/xperia_kernel_build
-          ref: ${{ inputs.kernel_branch }}
-          path: kernel-source
-          fetch-depth: 1
+          path: main
 
-      - name: Compile Kernel
-        working-directory: ./kernel-source
+      - name: Setup Environment
         run: |
-          # Set environment variables for the Kbuild system.
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod dwarves python2 python-is-python3
+          
+          # Create python2 symlink if it doesn't exist
+          if ! command -v python2 &> /dev/null; then
+            sudo ln -sf /usr/bin/python3 /usr/bin/python2
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "spacealtctrl"
+          git config --global user.email "actions@github.com"
+
+      - name: Set Device-Specific Variables
+        run: |
+          case "${{ inputs.device }}" in
+            "Xperia 1 VI (pdx245)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1VI" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx245_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx245\ndevice.name2=Xperia 1 VI' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=14" >> $GITHUB_ENV
+              ;;
+            "Xperia 5 V (pdx237)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5V" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx237_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx237\ndevice.name2=Xperia 5 V' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=13-14" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 V (pdx234)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1V" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx234\ndevice.name2=Xperia 1 V' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=13-14" >> $GITHUB_ENV
+              echo "PDX_MODEL=234" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 IV (pdx223)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1IV" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=Xperia 1 IV' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
+              echo "PDX_MODEL=223" >> $GITHUB_ENV
+              ;;
+            "Xperia 5 IV (pdx225)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5IV" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx225_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx225\ndevice.name2=Xperia 5 IV' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
+              echo "PDX_MODEL=225" >> $GITHUB_ENV
+              ;;
+            "Xperia PRO-I (pdx215)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=Xperia PRO-I' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=215" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 III (pdx213)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1III" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx213_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx213\ndevice.name2=Xperia 1 III' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=213" >> $GITHUB_ENV
+              ;;
+            "Xperia 5 III (pdx214)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5III" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx214_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx214\ndevice.name2=Xperia 5 III' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=214" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 II (pdx203)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1II" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=Xperia 1 II' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
+              echo "PDX_MODEL=203" >> $GITHUB_ENV
+              ;;
+            "Xperia 5 II (pdx206)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5II" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx206_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx206\ndevice.name2=Xperia 5 II' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
+              echo "PDX_MODEL=206" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Setup Clang Toolchain (Simple)
+        run: |
+          echo "Setting up Clang toolchain using system packages..."
+          
+          # Install Clang and LLVM tools from Ubuntu repositories
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-15 \
+            lld-15 \
+            llvm-15 \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+          
+          # Create symlinks for expected names
+          sudo ln -sf /usr/bin/clang-15 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-15 /usr/bin/ld.lld
+          sudo ln -sf /usr/bin/llvm-ar-15 /usr/bin/llvm-ar
+          sudo ln -sf /usr/bin/llvm-nm-15 /usr/bin/llvm-nm
+          sudo ln -sf /usr/bin/llvm-objcopy-15 /usr/bin/llvm-objcopy
+          sudo ln -sf /usr/bin/llvm-objdump-15 /usr/bin/llvm-objdump
+          sudo ln -sf /usr/bin/llvm-readelf-15 /usr/bin/llvm-readelf
+          sudo ln -sf /usr/bin/llvm-strip-15 /usr/bin/llvm-strip
+          
+          # Set up environment variables
+          echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          
+          # Test the toolchain
+          clang --version
+          ld.lld --version
+          aarch64-linux-gnu-gcc --version
+          
+          echo "Toolchain setup complete!"
+
+      - name: Clone Kernel and Setup Defconfig
+        run: |
+          echo "Cloning Sony kernel from default branch..."
+          git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
+          echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
+          
+          cd kernel
+          
+          # Check if the expected defconfig exists
+          DEFCONFIG_FILE="arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}"
+          if [ ! -f "$DEFCONFIG_FILE" ]; then
+            echo "::warning::Defconfig ${{ env.KERNEL_DEFCONFIG }} not found."
+          else
+            echo "Using existing defconfig: ${{ env.KERNEL_DEFCONFIG }}"
+          fi
+
+      - name: Integrate KernelSU
+        run: |
+          cd kernel
+
+          ksu_branch_arg="main"
+          if [[ "${{ inputs.kernelsu_branch }}" == "Dev" ]]; then
+            ksu_branch_arg="dev"
+          fi
+
+          setup_script_url=""
+          case "${{ inputs.kernelsu_variant }}" in
+            "Official") setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;
+            "Next") setup_script_url="https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" ;;
+            "MKSU") setup_script_url="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" ;;
+            "SukiSU"|"SukiSU-Ultra") setup_script_url="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" ;;
+          esac
+          
+          if [ -z "$setup_script_url" ]; then
+            echo "::error::Invalid KernelSU variant selected."
+            exit 1
+          fi
+
+          echo "Integrating ${{ inputs.kernelsu_variant }} using branch '$ksu_branch_arg'..."
+          export GIT_TERMINAL_PROMPT=0
+          curl -LSs "$setup_script_url" | bash -s "$ksu_branch_arg"
+
+      - name: Integrate SUSFS
+        if: ${{ inputs.use_susfs }}
+        run: |
+          cd kernel
+          git clone --depth=1 "${{ env.SUSFS_URL }}" ../susfs
+          
+          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*")
+          if [ -z "$KSU_DIR" ]; then
+            echo "::error::KernelSU source directory not found!"
+            exit 1
+          fi
+          echo "Found KernelSU directory at: $KSU_DIR"
+          
+          cd "$KSU_DIR"
+
+          echo "Applying SUSFS patch inside $KSU_DIR..."
+          if [ -f "../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+            patch -p1 --forward --fuzz=3 < "../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || {
+              echo "::warning::SUSFS patch failed to apply. This might be expected for some KernelSU versions."
+            }
+          else
+            echo "::warning::SUSFS patch file not found."
+          fi
+
+          cd ..
+
+          if [ -d "../susfs/ksu_module_susfs" ]; then
+            cp -r "../susfs/ksu_module_susfs" ./
+          fi
+
+      - name: Apply KPM
+        if: ${{ inputs.use_kpm }}
+        run: |
+          cd kernel
+          git clone --depth=1 "${{ env.KPM_URL }}" ../KPM
+          
+          if [ -f "../KPM/patch-kernel.sh" ]; then
+            bash "../KPM/patch-kernel.sh" --apply
+          else
+            if [ -d "../KPM/patches" ]; then
+              for patch in ../KPM/patches/*.patch; do
+                [ -f "$patch" ] && git apply "$patch" || echo "Failed to apply $(basename "$patch")"
+              done
+            fi
+          fi
+
+      - name: Apply Additional Patches
+        run: |
+          cd kernel
+          
+          if [ "${{ inputs.use_lxc }}" == "true" ]; then
+            if [ -f "../main/patches/lxc.patch" ]; then
+              git apply "../main/patches/lxc.patch" || echo "LXC patch not available"
+            fi
+          fi
+          
+          if [ -d "../main/patches/core" ]; then
+            for patch in ../main/patches/core/*.patch; do
+              [ -f "$patch" ] && git apply "$patch" || echo "Failed to apply $(basename "$patch")"
+            done
+          fi
+
+      - name: Configure Kernel
+        run: |
+          cd kernel
+          
+          # Set up build environment
           export ARCH=arm64
           export SUBARCH=arm64
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export PATH="${GITHUB_WORKSPACE}/toolchain/bin:${PATH}"
+          export KBUILD_BUILD_USER="spacealtctrl"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          echo "================================================="
-          echo "Starting build for: ${{ env.DEFCONFIG }}"
-          echo "================================================="
+          echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
           
-          # Configure the kernel using the selected defconfig.
-          # O=out redirects all build output to a subdirectory.
-          # LLVM=1 tells Kbuild to use the full LLVM toolchain.
-          # LLVM_IAS=1 tells Kbuild to use the LLVM integrated assembler.
-          make LLVM=1 LLVM_IAS=1 O=out ${{ env.DEFCONFIG }}
+          # Configure kernel with proper LLVM flags
+          make O=out \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            HOSTCC=clang \
+            HOSTLD=ld.lld \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
+            CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
+            ${{ env.KERNEL_DEFCONFIG }}
           
-          # Start the compilation process using ccache for acceleration.
-          make LLVM=1 LLVM_IAS=1 O=out CC="ccache clang" -j$(nproc)
+          if [ "${{ inputs.use_susfs }}" == "true" ]; then
+            echo "CONFIG_KSU_SUSFS=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SU_HIDE=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> out/.config
+          fi
           
-          echo "================================================="
-          echo "ccache statistics:"
-          ccache -s
-          echo "================================================="
+          if [ "${{ inputs.use_lxc }}" == "true" ]; then
+            echo "CONFIG_NAMESPACES=y" >> out/.config
+            echo "CONFIG_NET_NS=y" >> out/.config
+            echo "CONFIG_PID_NS=y" >> out/.config
+            echo "CONFIG_IPC_NS=y" >> out/.config
+            echo "CONFIG_UTS_NS=y" >> out/.config
+            echo "CONFIG_CGROUPS=y" >> out/.config
+            echo "CONFIG_CGROUP_DEVICE=y" >> out/.config
+            echo "CONFIG_CPUSETS=y" >> out/.config
+          fi
 
-      - name: Upload Kernel Artifact
+      - name: Build Kernel
+        run: |
+          cd kernel
+          
+          # Set up build environment
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export KBUILD_BUILD_USER="spacealtctrl"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
+          
+          # Build kernel
+          make O=out \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            HOSTCC=clang \
+            HOSTLD=ld.lld \
+            CC=clang \
+            LD=ld.lld \
+            CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
+            CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
+            KBUILD_CFLAGS="-Wno-error=align-mismatch" \
+            -j$(nproc) || {
+            echo "Build failed"
+            exit 1
+          }
+
+      - name: Package Kernel
+        run: |
+          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" AnyKernel3
+          cd AnyKernel3
+          
+          # Keep tools/ because ak3-core.sh is required
+          rm -rf .git* README.md modules patch ramdisk anykernel.sh
+          cp ../kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} ./
+          
+          # Dynamically create the anykernel.sh script
+          cat > anykernel.sh <<- EOL
+          # AnyKernel3 Script
+          properties() { '
+          kernel.string=KernelSU for ${{ env.DEVICE_FRIENDLY_NAME }} by spacealtctrl
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          ${{ env.ANYKERNEL_DEVICE_CHECKS }}
+          supported.versions=${{ env.SUPPORTED_ANDROID_VERSIONS }}
+          '; } # end properties
+          
+          block=boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          . tools/ak3-core.sh;
+          
+          dump_boot;
+          write_boot;
+          EOL
+          
+          VERSION_SUFFIX="${{ inputs.version }}"
+          SUSFS_SUFFIX=""
+          KPM_SUFFIX=""
+          if [ "${{ inputs.use_susfs }}" == "true" ]; then SUSFS_SUFFIX="-SUSFS"; fi
+          if [ "${{ inputs.use_kpm }}" == "true" ]; then KPM_SUFFIX="-KPM"; fi
+          
+          ZIP_NAME="Sony-${{ env.DEVICE_FRIENDLY_NAME }}-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
+          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-${{ env.DEFCONFIG }}-${{ github.run_id }}
-          path: ./kernel-source/out/arch/arm64/boot/Image.gz-dtb
-          if-no-files-found: error
+          name: Sony-${{ env.DEVICE_FRIENDLY_NAME }}-Kernel-${{ github.run_id }}
+          path: |
+            AnyKernel3/*.zip
+            kernel/out/arch/arm64/boot/Image
+
+  get-manager:
+    name: Get Manager
+    needs: build
+    if: ${{ inputs.get_manager }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set Manager Repo
+        run: |
+          variant="${{ inputs.kernelsu_variant }}"
+          case "$variant" in
+            "Official") REPO="tiann/KernelSU" ;;
+            "Next") REPO="rifsxd/KernelSU-Next" ;;
+            "MKSU") REPO="5ec1cff/KernelSU" ;;
+            "SukiSU"|"SukiSU-Ultra") REPO="SukiSue/SukiSU" ;;
+          esac
+          echo "KSU_REPO=$REPO" >> $GITHUB_ENV
+
+      - name: Download Manager
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ env.KSU_REPO }}" ]; then
+            gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber || echo "No APK found"
+          fi
+          
+      - name: Upload Manager
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Manager-APK-${{ inputs.kernelsu_variant }}
+          path: "*.apk"
+
+  download-susfs-module:
+    name: Download SUSFS Module
+    needs: build
+    if: ${{ inputs.use_susfs }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Module
+        run: |
+          git clone --depth=1 "${{ env.SUSFS_MODULE_URL }}" susfs-module || {
+            mkdir -p susfs-module
+            cd susfs-module
+            wget -q "https://github.com/sidex15/susfs4ksu_su_module/releases/latest/download/susfs4ksu_module.zip" -O susfs_module.zip || echo "No module found"
+          }
+          
+          find susfs-module -name "*.zip" -exec cp {} ./ \; 2>/dev/null || echo "No zip files found"
+          
+      - name: Upload Module
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SUSFS-Module-${{ github.run_id }}
+          path: "*.zip"

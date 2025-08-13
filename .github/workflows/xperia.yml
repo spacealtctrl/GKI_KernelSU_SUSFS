@@ -162,7 +162,7 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
-          echo "TOOLCHAIN_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
+          echo "$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_PATH
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
       - name: Clone Kernel
@@ -323,7 +323,13 @@ jobs:
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
           echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
-          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
+          make O=out \
+               LLVM=1 \
+               LLVM_IAS=1 \
+               CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
+               CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
+               LD=ld.lld \
+               ${{ env.KERNEL_DEFCONFIG }}
           
           # Add configs for optional patches
           echo "CONFIG_CRYPTO_LZ4HC=y" >> out/.config
@@ -362,7 +368,13 @@ jobs:
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
+          make O=out \
+               LLVM=1 \
+               LLVM_IAS=1 \
+               CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} \
+               CROSS_COMPILE=${{ env.CLANG_TRIPLE }} \
+               LD=ld.lld \
+               -j$(nproc) || {
             echo "Build failed"
             exit 1
           }

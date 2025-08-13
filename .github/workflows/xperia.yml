@@ -392,12 +392,13 @@ jobs:
           SUSFS_SUFFIX=""
           KPM_SUFFIX=""
           if [ "${{ inputs.use_susfs }}" == "true" ]; then SUSFS_SUFFIX="-SUSFS"; fi
-          if [ "${{ inputs.use_kmp }}" == "true" ]; then KPM_SUFFIX="-KPM"; fi
+          if [ "${{ inputs.use_kpm }}" == "true" ]; then KPM_SUFFIX="-KPM"; fi
           
           ZIP_NAME="Sony-Xperia1V-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"
           
           echo "Created flashable zip: $ZIP_NAME"
+          echo "AK3_DIR=$AK3_DIR" >> $GITHUB_ENV
           ls -la *.zip
 
       - name: "Upload build artifacts"
@@ -405,8 +406,8 @@ jobs:
         with:
           name: Sony-Xperia1V-Kernel-${{ github.run_id }}
           path: |
-            ${{ env.AK3_DIR }}/*.zip
-            ${{ env.KERNEL_DIR }}/out/arch/arm64/boot/Image
+            ~/AnyKernel3/*.zip
+            ~/kernel/out/arch/arm64/boot/Image
 
   get-manager:
     name: Download KernelSU Manager
@@ -460,17 +461,14 @@ jobs:
           }
           
           cd "$SUSFS_MODULE_DIR"
-          if [ -f "*.zip" ]; then
-            cp *.zip ~/
-          elif [ -d "release" ]; then
-            cp release/*.zip ~/ 2>/dev/null || echo "No release files found"
-          elif [ -f "susfs_module.zip" ]; then
-            cp susfs_module.zip ~/
-          fi
+          # Copy any zip files to a known location
+          mkdir -p "$HOME/artifacts"
+          find . -name "*.zip" -exec cp {} "$HOME/artifacts/" \; 2>/dev/null || echo "No zip files found"
+          echo "SUSFS_ARTIFACTS_DIR=$HOME/artifacts" >> $GITHUB_ENV
           
       - name: "Upload SUSFS module"
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: SUSFS-Module-${{ github.run_id }}
-          path: "~/*.zip"
+          path: ~/artifacts/*.zip

@@ -79,7 +79,12 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod dwarves
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod dwarves python2 python-is-python3
+          
+          # Create python2 symlink if it doesn't exist
+          if ! command -v python2 &> /dev/null; then
+            sudo ln -sf /usr/bin/python3 /usr/bin/python2
+          fi
 
       - name: Configure Git
         run: |
@@ -106,134 +111,178 @@ jobs:
               echo "KERNEL_DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx234\ndevice.name2=Xperia 1 V' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=13-14" >> $GITHUB_ENV
+              echo "PDX_MODEL=234" >> $GITHUB_ENV
               ;;
             "Xperia 1 IV (pdx223)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1IV" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=Xperia 1 IV' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
+              echo "PDX_MODEL=223" >> $GITHUB_ENV
               ;;
             "Xperia 5 IV (pdx225)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-5IV" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx225_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx225\ndevice.name2=Xperia 5 IV' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
+              echo "PDX_MODEL=225" >> $GITHUB_ENV
               ;;
             "Xperia PRO-I (pdx215)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=Xperia PRO-I' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=215" >> $GITHUB_ENV
               ;;
             "Xperia 1 III (pdx213)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1III" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx213_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx213\ndevice.name2=Xperia 1 III' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=213" >> $GITHUB_ENV
               ;;
             "Xperia 5 III (pdx214)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-5III" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx214_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx214\ndevice.name2=Xperia 5 III' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              echo "PDX_MODEL=214" >> $GITHUB_ENV
               ;;
             "Xperia 1 II (pdx203)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1II" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=Xperia 1 II' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
+              echo "PDX_MODEL=203" >> $GITHUB_ENV
               ;;
             "Xperia 5 II (pdx206)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-5II" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx206_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx206\ndevice.name2=Xperia 5 II' >> $GITHUB_ENV
               echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
+              echo "PDX_MODEL=206" >> $GITHUB_ENV
               ;;
           esac
 
-      - name: Setup Clang Toolchain
+      - name: Setup Clang Toolchain (Simple)
         run: |
-          echo "Setting up Clang toolchain..."
+          echo "Setting up Clang toolchain using system packages..."
           
-          # Method 1: Try downloading prebuilt Clang from reliable sources
-          echo "Downloading Clang 18..."
-          CLANG_VERSION="18.1.8"
-          CLANG_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${CLANG_VERSION}/clang+llvm-${CLANG_VERSION}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
+          # Install Clang and LLVM tools from Ubuntu repositories
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-15 \
+            lld-15 \
+            llvm-15 \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
           
-          wget -q "$CLANG_URL" -O clang.tar.xz || {
-            echo "Failed to download from GitHub, trying alternative..."
-            # Fallback to a different version
-            CLANG_VERSION="17.0.6"
-            CLANG_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${CLANG_VERSION}/clang+llvm-${CLANG_VERSION}-x86_64-linux-gnu-ubuntu-22.04.tar.xz"
-            wget -q "$CLANG_URL" -O clang.tar.xz
-          }
-          
-          echo "Extracting Clang..."
-          tar -xf clang.tar.xz
-          CLANG_DIR=$(find "$(pwd)" -maxdepth 1 -type d -name "clang+llvm-*" | head -1)
-          
-          if [ -z "$CLANG_DIR" ]; then
-            echo "::error::Clang extraction failed!"
-            exit 1
-          fi
-          
-          echo "Using Clang from: $CLANG_DIR"
-          
-          # Download additional build tools (binutils)
-          echo "Setting up build tools..."
-          mkdir -p build-tools/bin
-          
-          # Download LLD and other LLVM tools if not included
-          if [ ! -f "$CLANG_DIR/bin/ld.lld" ]; then
-            echo "::warning::ld.lld not found in Clang package, using system alternatives"
-            # Install LLVM tools from apt
-            sudo apt-get update
-            sudo apt-get install -y llvm lld
-            
-            # Create symlinks to expected locations
-            ln -sf /usr/bin/ld.lld build-tools/bin/ld.lld
-            ln -sf /usr/bin/llvm-ar build-tools/bin/llvm-ar
-            ln -sf /usr/bin/llvm-nm build-tools/bin/llvm-nm
-            ln -sf /usr/bin/llvm-objcopy build-tools/bin/llvm-objcopy
-            ln -sf /usr/bin/llvm-objdump build-tools/bin/llvm-objdump
-            ln -sf /usr/bin/llvm-readelf build-tools/bin/llvm-readelf
-            ln -sf /usr/bin/llvm-strip build-tools/bin/llvm-strip
-            
-            BUILD_TOOLS_PATH="$(pwd)/build-tools/bin:/usr/bin"
-          else
-            BUILD_TOOLS_PATH="$CLANG_DIR/bin"
-          fi
+          # Create symlinks for expected names
+          sudo ln -sf /usr/bin/clang-15 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-15 /usr/bin/ld.lld
+          sudo ln -sf /usr/bin/llvm-ar-15 /usr/bin/llvm-ar
+          sudo ln -sf /usr/bin/llvm-nm-15 /usr/bin/llvm-nm
+          sudo ln -sf /usr/bin/llvm-objcopy-15 /usr/bin/llvm-objcopy
+          sudo ln -sf /usr/bin/llvm-objdump-15 /usr/bin/llvm-objdump
+          sudo ln -sf /usr/bin/llvm-readelf-15 /usr/bin/llvm-readelf
+          sudo ln -sf /usr/bin/llvm-strip-15 /usr/bin/llvm-strip
           
           # Set up environment variables
-          echo "CLANG_PATH=$CLANG_DIR/bin" >> $GITHUB_ENV
-          echo "BUILD_TOOLS_PATH=$BUILD_TOOLS_PATH" >> $GITHUB_ENV
+          echo "CLANG_PATH=/usr/bin" >> $GITHUB_ENV
+          echo "BUILD_TOOLS_PATH=/usr/bin" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          
-          # Verify tools exist
-          export PATH="$CLANG_DIR/bin:$BUILD_TOOLS_PATH:$PATH"
-          
-          echo "Verifying toolchain..."
-          if ! command -v clang >/dev/null 2>&1; then
-            echo "::error::clang not found in PATH"
-            exit 1
-          fi
-          
-          if ! command -v ld.lld >/dev/null 2>&1; then
-            echo "::error::ld.lld not found in PATH"
-            exit 1
-          fi
           
           # Test the toolchain
           clang --version
           ld.lld --version
+          aarch64-linux-gnu-gcc --version
           
           echo "Toolchain setup complete!"
 
-      - name: Clone Kernel
+      - name: Clone Kernel and Setup Defconfig
         run: |
           echo "Cloning Sony kernel from default branch..."
           git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
+          
+          cd kernel
+          
+          # Check available branches
+          echo "Available branches:"
+          git ls-remote --heads origin | head -10
+          
+          # List available defconfigs
+          echo "Available defconfigs in arch/arm64/configs/:"
+          find arch/arm64/configs/ -name "*.defconfig" | head -20
+          
+          # Check if the expected defconfig exists
+          DEFCONFIG_FILE="arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}"
+          if [ ! -f "$DEFCONFIG_FILE" ]; then
+            echo "::warning::Defconfig ${{ env.KERNEL_DEFCONFIG }} not found."
+            
+            # For Sony kernels, we need to check for alternative naming patterns
+            case "${{ env.PDX_MODEL }}" in
+              "234")
+                # PDX234 (Xperia 1 V) alternatives
+                ALT_CONFIGS=(
+                  "arch/arm64/configs/vendor/yodo_defconfig"
+                  "arch/arm64/configs/vendor/pdx234_defconfig"
+                  "arch/arm64/configs/gki_defconfig"
+                  "arch/arm64/configs/defconfig"
+                )
+                ;;
+              "223"|"225")
+                # PDX223/225 (Xperia 1/5 IV) alternatives
+                ALT_CONFIGS=(
+                  "arch/arm64/configs/vendor/nagara_defconfig"
+                  "arch/arm64/configs/gki_defconfig"
+                  "arch/arm64/configs/defconfig"
+                )
+                ;;
+              *)
+                # Generic alternatives
+                ALT_CONFIGS=(
+                  "arch/arm64/configs/gki_defconfig"
+                  "arch/arm64/configs/defconfig"
+                  "arch/arm64/configs/vendor/sm8450_defconfig"
+                  "arch/arm64/configs/vendor/waipio_defconfig"
+                )
+                ;;
+            esac
+            
+            NEW_DEFCONFIG=""
+            for alt_config in "${ALT_CONFIGS[@]}"; do
+              if [ -f "$alt_config" ]; then
+                echo "Found alternative config: $alt_config"
+                NEW_DEFCONFIG=$(basename "$alt_config")
+                echo "KERNEL_DEFCONFIG=$NEW_DEFCONFIG" >> $GITHUB_ENV
+                break
+              fi
+            done
+            
+            # If still no config found, try to find any suitable config
+            if [ -z "$NEW_DEFCONFIG" ]; then
+              FOUND_CONFIG=$(find arch/arm64/configs/ -name "*defconfig" | grep -E "(gki|vendor)" | head -1)
+              if [ -n "$FOUND_CONFIG" ]; then
+                NEW_DEFCONFIG=$(basename "$FOUND_CONFIG")
+                echo "KERNEL_DEFCONFIG=$NEW_DEFCONFIG" >> $GITHUB_ENV
+                echo "Using found config: $NEW_DEFCONFIG"
+              else
+                # Last resort - use any defconfig
+                FOUND_CONFIG=$(find arch/arm64/configs/ -name "*defconfig" | head -1)
+                if [ -n "$FOUND_CONFIG" ]; then
+                  NEW_DEFCONFIG=$(basename "$FOUND_CONFIG")
+                  echo "KERNEL_DEFCONFIG=$NEW_DEFCONFIG" >> $GITHUB_ENV
+                  echo "Using fallback config: $NEW_DEFCONFIG"
+                else
+                  echo "::error::No suitable defconfig found!"
+                  exit 1
+                fi
+              fi
+            fi
+          else
+            echo "Using existing defconfig: ${{ env.KERNEL_DEFCONFIG }}"
+          fi
 
       - name: Integrate KernelSU
         run: |

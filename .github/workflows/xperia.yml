@@ -1,8 +1,28 @@
-name: Build Sony Xperia 1V Kernel
+name: Build Sony Xperia Kernel
 
 on:
   workflow_dispatch:
     inputs:
+      device:
+        description: "Xperia Model"
+        required: true
+        type: choice
+        options:
+          - "Xperia 1 VI / 5 V (SM8650/SM8550)"
+          - "Xperia 1 V (SM8550)"
+          - "Xperia 1 IV / 5 IV (SM8450)"
+          - "Xperia PRO-I / 1 III / 5 III (SM8350)"
+          - "Xperia 1 II / 5 II (SM8250)"
+          - "Xperia 1 / 5 (SM8150)"
+          - "Xperia XZ3 (SDM845)"
+          - "Xperia XZ2 / XZ2 Premium / XZ2 Compact (SDM845)"
+        default: "Xperia 1 VI / 5 V (SM8650/SM8550)"
+      android_version:
+        description: "Android Version"
+        required: true
+        type: choice
+        options: ["android13", "android14"]
+        default: "android14"
       kernelsu_variant:
         description: "KernelSU Variant"
         required: true
@@ -15,12 +35,6 @@ on:
         type: choice
         options: ["Stable", "Dev"]
         default: "Dev"
-      android_version:
-        description: "Android Version"
-        required: true
-        type: choice
-        options: ["android13-5.15", "android14-5.15"]
-        default: "android13-5.15"
       version:
         description: "Version Suffix (optional)"
         required: false
@@ -48,7 +62,6 @@ on:
 
 env:
   SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel.git"
-  KERNEL_DEFCONFIG: "aosp_pdx234_defconfig"
   KERNEL_IMAGE_NAME: "Image"
   ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
   KPM_URL: "https://github.com/backslashxx/KPM.git"
@@ -77,38 +90,79 @@ jobs:
           git config --global user.name "spacealtctrl"
           git config --global user.email "actions@github.com"
 
+      - name: Set Device-Specific Variables
+        run: |
+          case "${{ inputs.device }}" in
+            "Xperia 1 VI / 5 V (SM8650/SM8550)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1VI-5V" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx245_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SM8650.SOMC.6.1.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx245\ndevice.name2=pdx237\ndevice.name3=Xperia 1 VI\ndevice.name4=Xperia 5 V' >> $GITHUB_ENV
+              ;;
+            "Xperia 1 V (SM8550)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1V" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV
+              if [[ "${{ inputs.android_version }}" == "android14" ]]; then
+                echo "SONY_BRANCH=aosp/SM8550.SOMC.5.15.r2" >> $GITHUB_ENV
+              else
+                echo "SONY_BRANCH=aosp/SM8550.SOMC.5.15.r1" >> $GITHUB_ENV
+              fi
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx234\ndevice.name2=Xperia 1 V' >> $GITHUB_ENV
+              ;;
+            "Xperia 1 IV / 5 IV (SM8450)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1IV-5IV" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SM8450.SOMC.5.10.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=pdx225\ndevice.name3=Xperia 1 IV\ndevice.name4=Xperia 5 IV' >> $GITHUB_ENV
+              ;;
+            "Xperia PRO-I / 1 III / 5 III (SM8350)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I-1III-5III" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SM8350.SOMC.5.4.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=pdx213\ndevice.name3=pdx214\ndevice.name4=Xperia PRO-I\ndevice.name5=Xperia 1 III\ndevice.name6=Xperia 5 III' >> $GITHUB_ENV
+              ;;
+            "Xperia 1 II / 5 II (SM8250)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1II-5II" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SM8250.SOMC.4.19.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=pdx206\ndevice.name3=Xperia 1 II\ndevice.name4=Xperia 5 II' >> $GITHUB_ENV
+              ;;
+            "Xperia 1 / 5 (SM8150)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1-5" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx201_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SM8150.SOMC.4.14.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx201\ndevice.name2=pdx194\ndevice.name3=Xperia 1\ndevice.name4=Xperia 5' >> $GITHUB_ENV
+              ;;
+            "Xperia XZ3 (SDM845)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-XZ3" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx212_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SDM845.LA.2.0.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx212\ndevice.name2=Xperia XZ3' >> $GITHUB_ENV
+              ;;
+            "Xperia XZ2 / XZ2 Premium / XZ2 Compact (SDM845)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-XZ2-Series" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx204_defconfig" >> $GITHUB_ENV
+              echo "SONY_BRANCH=aosp/SDM845.LA.2.0.r1" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx204\ndevice.name2=pdx205\ndevice.name3=pdx207\ndevice.name4=Xperia XZ2\ndevice.name5=Xperia XZ2 Premium\ndevice.name6=Xperia XZ2 Compact' >> $GITHUB_ENV
+              ;;
+          esac
+
       - name: Setup Clang (Git Clone Method)
         run: |
           echo "Setting up Clang toolchain using git clone..."
           AOSP_MIRROR=https://android.googlesource.com
-          # Using a recent and stable build tools branch suitable for modern kernels
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
-          # Set environment variables for the build steps
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          # The path needs to point to the linux-x86 directory inside the cloned repo
           echo "CLANG_PATH=$(pwd)/build-tools/linux-x86" >> $GITHUB_ENV
-          # The gcc-toolchain path is also needed for the linker (ld)
           echo "GCC_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
 
       - name: Clone Kernel
         run: |
-          # Map user-friendly version to the actual Sony firmware tag
-          # These tags correspond to official software releases for the Xperia 1V
-          if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
-            # This is a tag for an Android 14 release
-            SONY_TAG="67.1.A.2.47"
-          else # Default to Android 13
-            # This is a tag for an Android 13 release
-            SONY_TAG="67.0.A.4.87"
-          fi
-          echo "Cloning Sony kernel from tag: $SONY_TAG"
-          
-          # Attempt to clone the specific tag. Tags are more reliable for specific points in history.
-          # We use --depth 1 and -b <tag_name> which works for tags as well as branches.
-          git clone --depth=1 -b "$SONY_TAG" "${{ env.SONY_KERNEL_URL }}" kernel || {
-            echo "Tag $SONY_TAG not found. This is a fatal error."
+          echo "Attempting to clone Sony kernel from specific branch: ${{ env.SONY_BRANCH }}"
+          git clone --depth=1 -b "${{ env.SONY_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" kernel || {
+            echo "::error::Specific branch '${{ env.SONY_BRANCH }}' not found. This is a fatal error."
             exit 1
           }
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
@@ -117,28 +171,17 @@ jobs:
         run: |
           cd kernel
 
-          # Determine the branch for the setup script's internal clone
           local ksu_branch_arg="main"
           if [[ "${{ inputs.kernelsu_branch }}" == "Dev" ]]; then
             ksu_branch_arg="dev"
           fi
 
-          # Select the correct setup script URL based on the variant
           local setup_script_url=""
           case "${{ inputs.kernelsu_variant }}" in
-            "Official")
-              setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh"
-              ;;
-            "Next")
-              # The setup script for Next is usually on its dev branch
-              setup_script_url="https://raw.githubusercontent.com/rifsxd/KernelSU-Next/dev/kernel/setup.sh"
-              ;;
-            "MKSU")
-              setup_script_url="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh"
-              ;;
-            "SukiSU"|"SukiSU-Ultra")
-              setup_script_url="https://raw.githubusercontent.com/SukiSue/SukiSU/main/kernel/setup.sh"
-              ;;
+            "Official") setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;
+            "Next") setup_script_url="https://raw.githubusercontent.com/rifsxd/KernelSU-Next/dev/kernel/setup.sh" ;;
+            "MKSU") setup_script_url="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" ;;
+            "SukiSU"|"SukiSU-Ultra") setup_script_url="https://raw.githubusercontent.com/SukiSue/SukiSU/main/kernel/setup.sh" ;;
           esac
           
           if [ -z "$setup_script_url" ]; then
@@ -146,9 +189,6 @@ jobs:
             exit 1
           fi
 
-          # Download and execute the setup script.
-          # Exporting GIT_TERMINAL_PROMPT=0 ensures that any git command inside the script
-          # will not prompt for credentials, which would fail in a non-interactive environment.
           echo "Integrating ${{ inputs.kernelsu_variant }} using branch '$ksu_branch_arg'..."
           export GIT_TERMINAL_PROMPT=0
           curl -LSs "$setup_script_url" | bash -s "$ksu_branch_arg"
@@ -203,24 +243,14 @@ jobs:
         run: |
           cd kernel
           
-          DEFCONFIG=""
-          if [ -f "arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}" ]; then
-            DEFCONFIG="${{ env.KERNEL_DEFCONFIG }}"
-          elif [ -f "arch/arm64/configs/aosp_yodo_defconfig" ]; then
-            DEFCONFIG="aosp_yodo_defconfig"
-          else
-            DEFCONFIG=$(find arch/arm64/configs -name "*pdx234*" -o -name "*yodo*" | head -1 | xargs basename)
-            [ -z "$DEFCONFIG" ] && DEFCONFIG="gki_defconfig"
-          fi
-          
           export PATH="${{ env.CLANG_PATH }}/bin:${{ env.GCC_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          echo "Using defconfig: $DEFCONFIG"
-          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} "$DEFCONFIG"
+          echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
+          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
           
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
             echo "CONFIG_KSU_SUSFS=y" >> out/.config
@@ -264,20 +294,17 @@ jobs:
           rm -rf .git* README.md modules patch ramdisk tools anykernel.sh
           cp ../kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }} ./
           
-          cat > anykernel.sh << 'EOL'
+          # Dynamically create the anykernel.sh script
+          cat > anykernel.sh <<- EOL
           # AnyKernel3 Script
           properties() { '
-          kernel.string=Sony Xperia 1V KernelSU by spacealtctrl
+          kernel.string=KernelSU for ${{ env.DEVICE_FRIENDLY_NAME }} by spacealtctrl
           do.devicecheck=1
           do.modules=0
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
-          device.name1=pdx234
-          device.name2=Xperia 1 V
-          device.name3=XQ-DQ44
-          device.name4=XQ-DQ54
-          device.name5=XQ-DQ62
+          ${{ env.ANYKERNEL_DEVICE_CHECKS }}
           supported.versions=13-15
           '; } # end properties
           
@@ -298,13 +325,13 @@ jobs:
           if [ "${{ inputs.use_susfs }}" == "true" ]; then SUSFS_SUFFIX="-SUSFS"; fi
           if [ "${{ inputs.use_kpm }}" == "true" ]; then KPM_SUFFIX="-KPM"; fi
           
-          ZIP_NAME="Sony-Xperia1V-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
+          ZIP_NAME="Sony-${{ env.DEVICE_FRIENDLY_NAME }}-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Sony-Xperia1V-Kernel-${{ github.run_id }}
+          name: Sony-${{ env.DEVICE_FRIENDLY_NAME }}-Kernel-${{ github.run_id }}
           path: |
             AnyKernel3/*.zip
             kernel/out/arch/arm64/boot/Image

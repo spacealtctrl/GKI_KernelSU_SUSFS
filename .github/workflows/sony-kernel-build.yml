@@ -154,42 +154,80 @@ jobs:
       - name: Setup Clang Toolchain
         run: |
           echo "Setting up Clang toolchain..."
-          AOSP_MIRROR=https://android.googlesource.com
-          BRANCH=main-kernel-build-2024
           
-          # Clone toolchain repositories
-          git clone $AOSP_MIRROR/kernel/prebuilts/clang/host/linux-x86 -b $BRANCH --depth 1 clang
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
+          # Method 1: Try downloading prebuilt Clang from reliable sources
+          echo "Downloading Clang 18..."
+          CLANG_VERSION="18.1.8"
+          CLANG_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${CLANG_VERSION}/clang+llvm-${CLANG_VERSION}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
           
-          # Find the latest Clang version directory
-          CLANG_DIR=$(find "$(pwd)/clang" -maxdepth 2 -type d -name "clang-r*" | sort -V | tail -n1)
+          wget -q "$CLANG_URL" -O clang.tar.xz || {
+            echo "Failed to download from GitHub, trying alternative..."
+            # Fallback to a different version
+            CLANG_VERSION="17.0.6"
+            CLANG_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${CLANG_VERSION}/clang+llvm-${CLANG_VERSION}-x86_64-linux-gnu-ubuntu-22.04.tar.xz"
+            wget -q "$CLANG_URL" -O clang.tar.xz
+          }
+          
+          echo "Extracting Clang..."
+          tar -xf clang.tar.xz
+          CLANG_DIR=$(find "$(pwd)" -maxdepth 1 -type d -name "clang+llvm-*" | head -1)
+          
           if [ -z "$CLANG_DIR" ]; then
-            echo "::error::No Clang directory found!"
+            echo "::error::Clang extraction failed!"
             exit 1
           fi
           
           echo "Using Clang from: $CLANG_DIR"
           
+          # Download additional build tools (binutils)
+          echo "Setting up build tools..."
+          mkdir -p build-tools/bin
+          
+          # Download LLD and other LLVM tools if not included
+          if [ ! -f "$CLANG_DIR/bin/ld.lld" ]; then
+            echo "::warning::ld.lld not found in Clang package, using system alternatives"
+            # Install LLVM tools from apt
+            sudo apt-get update
+            sudo apt-get install -y llvm lld
+            
+            # Create symlinks to expected locations
+            ln -sf /usr/bin/ld.lld build-tools/bin/ld.lld
+            ln -sf /usr/bin/llvm-ar build-tools/bin/llvm-ar
+            ln -sf /usr/bin/llvm-nm build-tools/bin/llvm-nm
+            ln -sf /usr/bin/llvm-objcopy build-tools/bin/llvm-objcopy
+            ln -sf /usr/bin/llvm-objdump build-tools/bin/llvm-objdump
+            ln -sf /usr/bin/llvm-readelf build-tools/bin/llvm-readelf
+            ln -sf /usr/bin/llvm-strip build-tools/bin/llvm-strip
+            
+            BUILD_TOOLS_PATH="$(pwd)/build-tools/bin:/usr/bin"
+          else
+            BUILD_TOOLS_PATH="$CLANG_DIR/bin"
+          fi
+          
           # Set up environment variables
           echo "CLANG_PATH=$CLANG_DIR/bin" >> $GITHUB_ENV
-          echo "BUILD_TOOLS_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
+          echo "BUILD_TOOLS_PATH=$BUILD_TOOLS_PATH" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
           
           # Verify tools exist
-          if [ ! -f "$CLANG_DIR/bin/clang" ]; then
-            echo "::error::clang not found at $CLANG_DIR/bin/clang"
+          export PATH="$CLANG_DIR/bin:$BUILD_TOOLS_PATH:$PATH"
+          
+          echo "Verifying toolchain..."
+          if ! command -v clang >/dev/null 2>&1; then
+            echo "::error::clang not found in PATH"
             exit 1
           fi
           
-          if [ ! -f "$(pwd)/build-tools/linux-x86/bin/ld.lld" ]; then
-            echo "::error::ld.lld not found in build-tools"
+          if ! command -v ld.lld >/dev/null 2>&1; then
+            echo "::error::ld.lld not found in PATH"
             exit 1
           fi
           
           # Test the toolchain
-          export PATH="$CLANG_DIR/bin:$(pwd)/build-tools/linux-x86/bin:$PATH"
           clang --version
           ld.lld --version
+          
+          echo "Toolchain setup complete!"
 
       - name: Clone Kernel
         run: |

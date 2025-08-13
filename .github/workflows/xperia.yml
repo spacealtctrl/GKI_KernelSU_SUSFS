@@ -158,8 +158,7 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
-          # Add the toolchain binaries to the PATH for all subsequent steps
-          echo "$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_PATH
+          echo "TOOLCHAIN_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
 
       - name: Clone Kernel
@@ -240,6 +239,35 @@ jobs:
             fi
           fi
 
+      - name: Apply Optional Performance Patches
+        run: |
+          echo "Cloning patch repositories..."
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git ../SukiSU_patch
+          
+          echo "Applying patches to kernel source..."
+          cd kernel
+
+          # Apply ZRAM patches
+          echo "Applying ZRAM patches..."
+          cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r ../../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+          cp -r ../../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+          cp -r ../../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+          
+          # Find the correct kernel version for patching (e.g., 5.10, 5.15)
+          KERNEL_VER=$(grep -oP 'VERSION = \K[0-9]+\.[0-9]+' Makefile | head -1)
+          if [ -f "../../SukiSU_patch/other/zram/zram_patch/${KERNEL_VER}/lz4kd.patch" ]; then
+              echo "Applying lz4kd patch for kernel version ${KERNEL_VER}"
+              patch -p1 -F 3 < "../../SukiSU_patch/other/zram/zram_patch/${KERNEL_VER}/lz4kd.patch" || true
+              patch -p1 -F 3 < "../../SukiSU_patch/other/zram/zram_patch/${KERNEL_VER}/lz4k_oplus.patch" || true
+          else
+              echo "::warning:: No specific ZRAM patches found for kernel version ${KERNEL_VER}"
+          fi
+
+          # Apply hide stuff patch
+          echo "Applying hide stuff patch..."
+          patch -p1 -F 3 < ../../SukiSU_patch/69_hide_stuff.patch || true
+
       - name: Apply Additional Patches
         run: |
           cd kernel
@@ -266,8 +294,16 @@ jobs:
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
           echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
-          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
+          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} ${{ env.KERNEL_DEFCONFIG }}
           
+          # Add configs for optional patches
+          echo "CONFIG_CRYPTO_LZ4HC=y" >> out/.config
+          echo "CONFIG_CRYPTO_LZ4K=y" >> out/.config
+          echo "CONFIG_CRYPTO_LZ4KD=y" >> out/.config
+          echo "CONFIG_CRYPTO_842=y" >> out/.config
+          echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> out/.config
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> out/.config
+
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
             echo "CONFIG_KSU_SUSFS=y" >> out/.config
             echo "CONFIG_KSU_SUSFS_SU_HIDE=y" >> out/.config
@@ -297,7 +333,7 @@ jobs:
           export KBUILD_BUILD_USER="spacealtctrl"
           export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
+          PATH="${{ env.TOOLCHAIN_PATH }}:$PATH" make O=out LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=${{ env.CLANG_TRIPLE }} CROSS_COMPILE=${{ env.CLANG_TRIPLE }} -j$(nproc) || {
             echo "Build failed"
             exit 1
           }

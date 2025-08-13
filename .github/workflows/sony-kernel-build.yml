@@ -1,0 +1,77 @@
+name: Build Sony Xperia Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Xperia Model"
+        required: true
+        type: choice
+        options:
+          - "Xperia 1 VI (pdx245)"
+          - "Xperia 5 V (pdx237)"
+          - "Xperia 1 V (pdx234)"
+          - "Xperia 1 IV (pdx223)"
+          - "Xperia 5 IV (pdx225)"
+          - "Xperia PRO-I (pdx215)"
+          - "Xperia 1 III (pdx213)"
+          - "Xperia 5 III (pdx214)"
+          - "Xperia 1 II (pdx203)"
+          - "Xperia 5 II (pdx206)"
+        default: "Xperia 1 V (pdx234)"
+      kernelsu_variant:
+        description: "KernelSU Variant"
+        required: true
+        type: choice
+        options: ["Official", "Next", "MKSU", "SukiSU", "SukiSU-Ultra"]
+        default: "SukiSU-Ultra"
+      kernelsu_branch:
+        description: "KernelSU Branch"
+        required: true
+        type: choice
+        options: ["Stable", "Dev"]
+        default: "Dev"
+      version:
+        description: "Version Suffix (optional)"
+        required: false
+        type: string
+      build_time:
+        description: "Build Time (e.g., 'Tue Jan 14 16:42:00 UTC 2025')"
+        required: false
+        type: string
+      use_susfs:
+        description: "Enable SUSFS?"
+        required: true
+        type: boolean
+        default: true
+      use_kpm:
+        description: "Enable KPM?"
+        required: true
+        type: boolean
+        default: true
+      use_lxc:
+        description: "Enable LXC?"
+        required: true
+        type: boolean
+        default: false
+      get_manager:
+        description: "Download Manager APK?"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  call-reusable-builder:
+    name: "Dispatch Kernel Build"
+    uses: ./.github/workflows/reusable-sony-builder.yml
+    with:
+      device: ${{ inputs.device }}
+      kernelsu_variant: ${{ inputs.kernelsu_variant }}
+      kernelsu_branch: ${{ inputs.kernelsu_branch }}
+      version: ${{ inputs.version }}
+      build_time: ${{ inputs.build_time }}
+      use_susfs: ${{ inputs.use_susfs }}
+      use_kpm: ${{ inputs.use_kpm }}
+      use_lxc: ${{ inputs.use_lxc }}
+      get_manager: ${{ inputs.get_manager }}
+    secrets: inherit

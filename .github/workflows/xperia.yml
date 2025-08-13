@@ -8,21 +8,17 @@ on:
         required: true
         type: choice
         options:
-          - "Xperia 1 VI / 5 V (SM8650/SM8550)"
-          - "Xperia 1 V (SM8550)"
-          - "Xperia 1 IV / 5 IV (SM8450)"
-          - "Xperia PRO-I / 1 III / 5 III (SM8350)"
-          - "Xperia 1 II / 5 II (SM8250)"
-          - "Xperia 1 / 5 (SM8150)"
-          - "Xperia XZ3 (SDM845)"
-          - "Xperia XZ2 / XZ2 Premium / XZ2 Compact (SDM845)"
-        default: "Xperia 1 VI / 5 V (SM8650/SM8550)"
-      android_version:
-        description: "Android Version"
-        required: true
-        type: choice
-        options: ["android13", "android14"]
-        default: "android14"
+          - "Xperia 1 VI (pdx245)"
+          - "Xperia 5 V (pdx237)"
+          - "Xperia 1 V (pdx234)"
+          - "Xperia 1 IV (pdx223)"
+          - "Xperia 5 IV (pdx225)"
+          - "Xperia PRO-I (pdx215)"
+          - "Xperia 1 III (pdx213)"
+          - "Xperia 5 III (pdx214)"
+          - "Xperia 1 II (pdx203)"
+          - "Xperia 5 II (pdx206)"
+        default: "Xperia 1 V (pdx234)"
       kernelsu_variant:
         description: "KernelSU Variant"
         required: true
@@ -93,45 +89,65 @@ jobs:
       - name: Set Device-Specific Variables
         run: |
           case "${{ inputs.device }}" in
-            "Xperia 1 VI / 5 V (SM8650/SM8550)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-1VI-5V" >> $GITHUB_ENV
+            "Xperia 1 VI (pdx245)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1VI" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx245_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx245\ndevice.name2=pdx237\ndevice.name3=Xperia 1 VI\ndevice.name4=Xperia 5 V' >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx245\ndevice.name2=Xperia 1 VI' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=14" >> $GITHUB_ENV
               ;;
-            "Xperia 1 V (SM8550)")
+            "Xperia 5 V (pdx237)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5V" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx237_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx237\ndevice.name2=Xperia 5 V' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=13-14" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 V (pdx234)")
               echo "DEVICE_FRIENDLY_NAME=Xperia-1V" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx234_defconfig" >> $GITHUB_ENV
               echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx234\ndevice.name2=Xperia 1 V' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=13-14" >> $GITHUB_ENV
               ;;
-            "Xperia 1 IV / 5 IV (SM8450)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-1IV-5IV" >> $GITHUB_ENV
+            "Xperia 1 IV (pdx223)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1IV" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx223_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=pdx225\ndevice.name3=Xperia 1 IV\ndevice.name4=Xperia 5 IV' >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx223\ndevice.name2=Xperia 1 IV' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
               ;;
-            "Xperia PRO-I / 1 III / 5 III (SM8350)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I-1III-5III" >> $GITHUB_ENV
+            "Xperia 5 IV (pdx225)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5IV" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx225_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx225\ndevice.name2=Xperia 5 IV' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=12-13" >> $GITHUB_ENV
+              ;;
+            "Xperia PRO-I (pdx215)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-PRO-I" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx215_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=pdx213\ndevice.name3=pdx214\ndevice.name4=Xperia PRO-I\ndevice.name5=Xperia 1 III\ndevice.name6=Xperia 5 III' >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx215\ndevice.name2=Xperia PRO-I' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
               ;;
-            "Xperia 1 II / 5 II (SM8250)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-1II-5II" >> $GITHUB_ENV
+            "Xperia 1 III (pdx213)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1III" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx213_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx213\ndevice.name2=Xperia 1 III' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              ;;
+            "Xperia 5 III (pdx214)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5III" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx214_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx214\ndevice.name2=Xperia 5 III' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=11-12" >> $GITHUB_ENV
+              ;;
+            "Xperia 1 II (pdx203)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-1II" >> $GITHUB_ENV
               echo "KERNEL_DEFCONFIG=aosp_pdx203_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=pdx206\ndevice.name3=Xperia 1 II\ndevice.name4=Xperia 5 II' >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx203\ndevice.name2=Xperia 1 II' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
               ;;
-            "Xperia 1 / 5 (SM8150)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-1-5" >> $GITHUB_ENV
-              echo "KERNEL_DEFCONFIG=aosp_pdx201_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx201\ndevice.name2=pdx194\ndevice.name3=Xperia 1\ndevice.name4=Xperia 5' >> $GITHUB_ENV
-              ;;
-            "Xperia XZ3 (SDM845)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-XZ3" >> $GITHUB_ENV
-              echo "KERNEL_DEFCONFIG=aosp_pdx212_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx212\ndevice.name2=Xperia XZ3' >> $GITHUB_ENV
-              ;;
-            "Xperia XZ2 / XZ2 Premium / XZ2 Compact (SDM845)")
-              echo "DEVICE_FRIENDLY_NAME=Xperia-XZ2-Series" >> $GITHUB_ENV
-              echo "KERNEL_DEFCONFIG=aosp_pdx204_defconfig" >> $GITHUB_ENV
-              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx204\ndevice.name2=pdx205\ndevice.name3=pdx207\ndevice.name4=Xperia XZ2\ndevice.name5=Xperia XZ2 Premium\ndevice.name6=Xperia XZ2 Compact' >> $GITHUB_ENV
+            "Xperia 5 II (pdx206)")
+              echo "DEVICE_FRIENDLY_NAME=Xperia-5II" >> $GITHUB_ENV
+              echo "KERNEL_DEFCONFIG=aosp_pdx206_defconfig" >> $GITHUB_ENV
+              echo 'ANYKERNEL_DEVICE_CHECKS=device.name1=pdx206\ndevice.name2=Xperia 5 II' >> $GITHUB_ENV
+              echo "SUPPORTED_ANDROID_VERSIONS=10-11" >> $GITHUB_ENV
               ;;
           esac
 
@@ -166,9 +182,9 @@ jobs:
           setup_script_url=""
           case "${{ inputs.kernelsu_variant }}" in
             "Official") setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;
-            "Next") setup_script_url="https://raw.githubusercontent.com/rifsxd/KernelSU-Next/dev/kernel/setup.sh" ;;
+            "Next") setup_script_url="https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" ;;
             "MKSU") setup_script_url="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" ;;
-            "SukiSU"|"SukiSU-Ultra") setup_script_url="https://raw.githubusercontent.com/SukiSue/SukiSU/main/kernel/setup.sh" ;;
+            "SukiSU"|"SukiSU-Ultra") setup_script_url="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" ;;
           esac
           
           if [ -z "$setup_script_url" ]; then
@@ -292,7 +308,7 @@ jobs:
           do.cleanup=1
           do.cleanuponabort=0
           ${{ env.ANYKERNEL_DEVICE_CHECKS }}
-          supported.versions=13-15
+          supported.versions=${{ env.SUPPORTED_ANDROID_VERSIONS }}
           '; } # end properties
           
           block=boot;

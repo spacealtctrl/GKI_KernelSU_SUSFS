@@ -70,7 +70,12 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod dwarves
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "spacealtctrl"
+          git config --global user.email "actions@github.com"
 
       - name: Setup Clang (Git Clone Method)
         run: |
@@ -89,64 +94,64 @@ jobs:
 
       - name: Clone Kernel
         run: |
-          # Map user-friendly version to the actual Sony branch name
+          # Map user-friendly version to the actual Sony firmware tag
+          # These tags correspond to official software releases for the Xperia 1V
           if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
-            SONY_BRANCH="aosp/SM8550.SOMC.5.15.r2"
+            # This is a tag for an Android 14 release
+            SONY_TAG="67.1.A.2.47"
           else # Default to Android 13
-            SONY_BRANCH="aosp/SM8550.SOMC.5.15.r1"
+            # This is a tag for an Android 13 release
+            SONY_TAG="67.0.A.4.87"
           fi
-          echo "Cloning Sony kernel from branch: $SONY_BRANCH"
+          echo "Cloning Sony kernel from tag: $SONY_TAG"
           
-          # Attempt to clone the specific branch, with a corrected fallback
-          git clone --depth=1 -b "$SONY_BRANCH" "${{ env.SONY_KERNEL_URL }}" kernel || {
-            echo "Branch $SONY_BRANCH not found, cloning default branch with depth=1..."
-            git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
+          # Attempt to clone the specific tag. Tags are more reliable for specific points in history.
+          # We use --depth 1 and -b <tag_name> which works for tags as well as branches.
+          git clone --depth=1 -b "$SONY_TAG" "${{ env.SONY_KERNEL_URL }}" kernel || {
+            echo "Tag $SONY_TAG not found. This is a fatal error."
+            exit 1
           }
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
-
-      - name: Setup KernelSU
-        run: |
-          variant="${{ inputs.kernelsu_variant }}"
-          branch_choice="${{ inputs.kernelsu_branch }}"
-          
-          case "$variant" in
-            "Official") KSU_URL="https://github.com/tiann/KernelSU.git" ;;
-            "Next") KSU_URL="https://github.com/rifsxd/KernelSU-Next.git" ;;
-            "MKSU") KSU_URL="https://github.com/5ec1cff/KernelSU.git" ;;
-            "SukiSU"|"SukiSU-Ultra") KSU_URL="https://github.com/SukiSue/SukiSU.git" ;;
-          esac
-          
-          if [ "$branch_choice" == "Stable" ]; then
-            KSU_BRANCH="main"
-          else
-            KSU_BRANCH="dev"
-          fi
-          
-          echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
-          echo "KSU_BRANCH=$KSU_BRANCH" >> $GITHUB_ENV
 
       - name: Integrate KernelSU
         run: |
           cd kernel
-          git config --global user.name "spacealtctrl"
-          git config --global user.email "actions@github.com"
-          
-          # Use GIT_TERMINAL_PROMPT=0 to prevent interactive auth prompts on public repos
-          GIT_TERMINAL_PROMPT=0 git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" ../KernelSU-source
-          
-          if [ -f "../KernelSU-source/kernel-patch.sh" ]; then
-            patch_ver="Stable"
-            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then
-              patch_ver="Ultra"
-            fi
-            echo "Y" | bash "../KernelSU-source/kernel-patch.sh" -v "$patch_ver"
-          else
-            if [ -f "../KernelSU-source/kernel/setup.sh" ]; then
-              source "../KernelSU-source/kernel/setup.sh"
-            else
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-            fi
+
+          # Determine the branch for the setup script's internal clone
+          local ksu_branch_arg="main"
+          if [[ "${{ inputs.kernelsu_branch }}" == "Dev" ]]; then
+            ksu_branch_arg="dev"
           fi
+
+          # Select the correct setup script URL based on the variant
+          local setup_script_url=""
+          case "${{ inputs.kernelsu_variant }}" in
+            "Official")
+              setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh"
+              ;;
+            "Next")
+              # The setup script for Next is usually on its dev branch
+              setup_script_url="https://raw.githubusercontent.com/rifsxd/KernelSU-Next/dev/kernel/setup.sh"
+              ;;
+            "MKSU")
+              setup_script_url="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh"
+              ;;
+            "SukiSU"|"SukiSU-Ultra")
+              setup_script_url="https://raw.githubusercontent.com/SukiSue/SukiSU/main/kernel/setup.sh"
+              ;;
+          esac
+          
+          if [ -z "$setup_script_url" ]; then
+            echo "::error::Invalid KernelSU variant selected."
+            exit 1
+          fi
+
+          # Download and execute the setup script.
+          # Exporting GIT_TERMINAL_PROMPT=0 ensures that any git command inside the script
+          # will not prompt for credentials, which would fail in a non-interactive environment.
+          echo "Integrating ${{ inputs.kernelsu_variant }} using branch '$ksu_branch_arg'..."
+          export GIT_TERMINAL_PROMPT=0
+          curl -LSs "$setup_script_url" | bash -s "$ksu_branch_arg"
 
       - name: Integrate SUSFS
         if: ${{ inputs.use_susfs }}

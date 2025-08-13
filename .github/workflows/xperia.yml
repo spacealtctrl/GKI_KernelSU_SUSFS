@@ -1,4 +1,4 @@
-name: Build Sony Xperia 1V (pdx234)
+name: Build Sony Xperia 1V (pdx234) with SukiSU Ultra + SUSFS + KPM
 
 on:
   workflow_dispatch:
@@ -15,12 +15,18 @@ on:
         type: choice
         options: [ "Stable", "Dev" ]
         default: Dev
+      android_version:
+        description: "Android Version"
+        required: true
+        type: choice
+        options: [ "android13-5.15", "android14-5.15" ]
+        default: android13-5.15
       version:
         description: "Custom version name suffix (optional)"
         required: false
         type: string
-      use_zram:
-        description: "Enable more ZRAM algorithms?"
+      use_susfs:
+        description: "Enable SUSFS (SU Hiding File System)?"
         required: true
         type: boolean
         default: true
@@ -29,8 +35,8 @@ on:
         required: true
         type: boolean
         default: true
-      set_defbbr:
-        description: "Set BBR as default congestion algorithm?"
+      use_lxc:
+        description: "Enable LXC container support?"
         required: true
         type: boolean
         default: false
@@ -41,16 +47,19 @@ on:
         default: true
 
 env:
-  # Configuration for Sony Xperia 1 V (pdx234)
-  SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel-somc-sm8550.git"
-  SONY_KERNEL_BRANCH: "kernel-6.1.69-pdx234-240515"
-  SONY_DEFCONFIG: "sm8550-pdx234_defconfig"
+  # Sony Xperia 1V (pdx234) Configuration
+  SONY_KERNEL_URL: "https://github.com/sonyxperiadev/kernel.git"
+  KERNEL_DEFCONFIG: "aosp_pdx234_defconfig"
+  KERNEL_IMAGE_NAME: "Image"
+  DEVICE_CODE: "pdx234"
+  PLATFORM: "yodo"
   
-  # Standard build environment variables from the user's working configuration
+  # Build Tools
   ANYKERNEL_URL: "https://github.com/osm0sis/AnyKernel3.git"
   CLANG_VERSION: "r510928"
-  KPM_URL: "https://github.com/L-J-K-s/KPM.git"
-  KERNEL_IMAGE_NAME: "Image"
+  KPM_URL: "https://github.com/backslashxx/KPM.git"
+  SUSFS_URL: "https://gitlab.com/simonpunk/susfs4ksu.git"
+  SUSFS_MODULE_URL: "https://github.com/sidex15/susfs4ksu_su_module.git"
 
 jobs:
   build:
@@ -64,126 +73,337 @@ jobs:
         with:
           path: main
 
-      - name: "Install dependencies"
+      - name: "Setup build environment"
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential cpio git wget zip unzip libssl-dev bison flex kmod libelf-dev imagemagick
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio unzip wget kmod
 
-      - name: "Download Clang toolchain"
+      - name: "Setup Clang toolchain"
         run: |
           mkdir -p "$GITHUB_WORKSPACE/clang"
           wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/${{ env.CLANG_VERSION }}.zip -O clang.zip
           unzip -q clang.zip -d "$GITHUB_WORKSPACE/clang"
           mv "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"/* "$GITHUB_WORKSPACE/clang"
+          rm -rf clang.zip "$GITHUB_WORKSPACE/clang/proton-clang-${{ env.CLANG_VERSION }}"
 
-      - name: "Download Sony kernel source"
+      - name: "Clone Sony kernel source"
         run: |
-          git clone --depth=1 -b "${{ env.SONY_KERNEL_BRANCH }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
+          echo "Cloning Sony kernel repository..."
+          git clone --depth=1 -b "${{ inputs.android_version }}" "${{ env.SONY_KERNEL_URL }}" "$GITHUB_WORKSPACE/kernel"
+          cd "$GITHUB_WORKSPACE/kernel"
+          echo "Repository cloned successfully"
+          echo "Checking for device-specific files..."
+          ls -la arch/arm64/configs/ | grep -E "(pdx234|yodo)" || echo "No pdx234 specific configs found"
+          echo "Available configs:"
+          find arch/arm64/configs -name "*pdx234*" -o -name "*yodo*" -o -name "*aosp*" | head -10
 
       - name: "Set up KernelSU variant"
-        id: ksu_setup
         run: |
           variant="${{ inputs.kernelsu_variant }}"
           branch_choice="${{ inputs.kernelsu_branch }}"
           KSU_URL=""
           KSU_BRANCH=""
 
-          if [ "$variant" == "Official" ]; then KSU_URL="https://github.com/tiann/KernelSU.git"; fi
-          if [ "$variant" == "Next" ]; then KSU_URL="https://github.com/SukiSue/WeNext-KernelSU.git"; fi
-          if [ "$variant" == "MKSU" ]; then KSU_URL="https://github.com/MlgmXyysd/MlgmXyysd-KernelSU.git"; fi
-          if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then KSU_URL="https://github.com/SukiSue/SukiSU.git"; fi
-          if [ "$branch_choice" == "Stable" ]; then KSU_BRANCH="main"; else KSU_BRANCH="dev"; fi
+          case "$variant" in
+            "Official") KSU_URL="https://github.com/tiann/KernelSU.git" ;;
+            "Next") KSU_URL="https://github.com/rifsxd/KernelSU-Next.git" ;;
+            "MKSU") KSU_URL="https://github.com/5ec1cff/KernelSU.git" ;;
+            "SukiSU"|"SukiSU-Ultra") KSU_URL="https://github.com/SukiSue/SukiSU.git" ;;
+          esac
+
+          if [ "$branch_choice" == "Stable" ]; then
+            KSU_BRANCH="main"
+          else
+            KSU_BRANCH="dev"
+          fi
           
           echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
           echo "KSU_BRANCH=$KSU_BRANCH" >> $GITHUB_ENV
+          echo "Using KernelSU variant: $variant from $KSU_URL (branch: $KSU_BRANCH)"
 
       - name: "Integrate KernelSU"
         run: |
           cd "$GITHUB_WORKSPACE/kernel"
+          git config --global user.name "spacealtctrl"
+          git config --global user.email "actions@github.com"
+          
+          echo "Cloning KernelSU source..."
           git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" "$GITHUB_WORKSPACE/KernelSU-source"
           
+          # Apply KernelSU patches
           if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" ]; then
+            echo "Applying KernelSU patches using kernel-patch.sh..."
             patch_ver="Stable"
-            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then patch_ver="Ultra"; fi
-            echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v $patch_ver
+            if [ "${{ inputs.kernelsu_variant }}" == "SukiSU-Ultra" ]; then
+              patch_ver="Ultra"
+            fi
+            echo "Y" | bash "$GITHUB_WORKSPACE/KernelSU-source/kernel-patch.sh" -v "$patch_ver"
           else
-            source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
+            echo "Using setup.sh method..."
+            if [ -f "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh" ]; then
+              source "$GITHUB_WORKSPACE/KernelSU-source/kernel/setup.sh"
+            else
+              echo "Manual KernelSU setup..."
+              # Manual setup as fallback
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+            fi
           fi
 
-      - name: "Apply optional features"
+      - name: "Integrate SUSFS"
+        if: ${{ inputs.use_susfs }}
         run: |
           cd "$GITHUB_WORKSPACE/kernel"
-          git config --global user.name "spacealtctrl" && git config --global user.email "actions@github.com"
-
-          if [ "${{ inputs.use_kpm }}" == "true" ]; then
-            git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
-            bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
-          fi
-
-          if [ "${{ inputs.use_zram }}" == "true" ]; then
-            git am "$GITHUB_WORKSPACE/main/patches/zram.patch" || true
-          fi
-
-          if [ "${{ inputs.set_defbbr }}" == "true" ]; then
-            git am "$GITHUB_WORKSPACE/main/patches/bbr.patch" || true
+          echo "Integrating SUSFS for advanced root hiding..."
+          
+          # Clone SUSFS
+          git clone --depth=1 "${{ env.SUSFS_URL }}" "$GITHUB_WORKSPACE/susfs"
+          
+          # Apply SUSFS kernel patches
+          if [ -f "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+            echo "Applying SUSFS kernel patch..."
+            patch -p1 < "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || {
+              echo "Direct patch failed, trying with git apply..."
+              git apply "$GITHUB_WORKSPACE/susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "SUSFS patch application may have issues, continuing..."
+            }
           fi
           
-          if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
-             git am "$GITHUB_WORKSPACE/main/patches/core/"*.patch || true
+          # Copy SUSFS module files if available
+          if [ -d "$GITHUB_WORKSPACE/susfs/ksu_module_susfs" ]; then
+            echo "Copying SUSFS module files..."
+            cp -r "$GITHUB_WORKSPACE/susfs/ksu_module_susfs" ./
           fi
 
-      - name: "Compile the kernel"
+      - name: "Apply KPM (Kernel Patch Manager)"
+        if: ${{ inputs.use_kpm }}
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          echo "Applying KPM (Kernel Patch Manager)..."
+          git clone --depth=1 "${{ env.KPM_URL }}" "$GITHUB_WORKSPACE/KPM"
+          
+          if [ -f "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" ]; then
+            bash "$GITHUB_WORKSPACE/KPM/patch-kernel.sh" --apply
+          else
+            echo "KPM patch script not found, manual application..."
+            if [ -d "$GITHUB_WORKSPACE/KPM/patches" ]; then
+              for patch in "$GITHUB_WORKSPACE/KPM/patches"/*.patch; do
+                [ -f "$patch" ] && git apply "$patch" || echo "Failed to apply $(basename "$patch")"
+              done
+            fi
+          fi
+
+      - name: "Apply additional patches"
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          
+          # Apply LXC patches if requested
+          if [ "${{ inputs.use_lxc }}" == "true" ]; then
+            echo "Enabling LXC container support..."
+            if [ -f "$GITHUB_WORKSPACE/main/patches/lxc.patch" ]; then
+              git apply "$GITHUB_WORKSPACE/main/patches/lxc.patch" || echo "LXC patch not available"
+            fi
+          fi
+          
+          # Apply core patches if available
+          if [ -d "$GITHUB_WORKSPACE/main/patches/core" ]; then
+            echo "Applying core patches..."
+            for patch in "$GITHUB_WORKSPACE/main/patches/core"/*.patch; do
+              [ -f "$patch" ] && git apply "$patch" || echo "Failed to apply $(basename "$patch")"
+            done
+          fi
+
+      - name: "Configure kernel"
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          
+          # Find and use the correct defconfig
+          DEFCONFIG=""
+          if [ -f "arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}" ]; then
+            DEFCONFIG="${{ env.KERNEL_DEFCONFIG }}"
+          elif [ -f "arch/arm64/configs/aosp_yodo_defconfig" ]; then
+            DEFCONFIG="aosp_yodo_defconfig"
+          else
+            # Find any pdx234 or yodo config
+            DEFCONFIG=$(find arch/arm64/configs -name "*pdx234*" -o -name "*yodo*" | head -1 | xargs basename)
+            [ -z "$DEFCONFIG" ] && DEFCONFIG="gki_defconfig"
+          fi
+          
+          echo "Using defconfig: $DEFCONFIG"
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64 && export SUBARCH=arm64
+          export KBUILD_BUILD_USER="spacealtctrl"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
+          
+          make O=out LLVM=1 LLVM_IAS=1 "$DEFCONFIG"
+          
+          # Add SUSFS configurations if enabled
+          if [ "${{ inputs.use_susfs }}" == "true" ]; then
+            echo "Adding SUSFS configurations..."
+            echo "CONFIG_KSU_SUSFS=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SU_HIDE=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> out/.config
+          fi
+          
+          # Add LXC configurations if enabled
+          if [ "${{ inputs.use_lxc }}" == "true" ]; then
+            echo "Adding LXC configurations..."
+            echo "CONFIG_NAMESPACES=y" >> out/.config
+            echo "CONFIG_NET_NS=y" >> out/.config
+            echo "CONFIG_PID_NS=y" >> out/.config
+            echo "CONFIG_IPC_NS=y" >> out/.config
+            echo "CONFIG_UTS_NS=y" >> out/.config
+            echo "CONFIG_CGROUPS=y" >> out/.config
+            echo "CONFIG_CGROUP_DEVICE=y" >> out/.config
+            echo "CONFIG_CPUSETS=y" >> out/.config
+            echo "CONFIG_PROC_PID_CPUSET=y" >> out/.config
+            echo "CONFIG_CGROUP_CPUACCT=y" >> out/.config
+            echo "CONFIG_RESOURCE_COUNTERS=y" >> out/.config
+          fi
+
+      - name: "Build kernel"
         run: |
           cd "$GITHUB_WORKSPACE/kernel"
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           export ARCH=arm64 && export SUBARCH=arm64
-          export KBUILD_BUILD_USER="spacealtctrl" && export KBUILD_BUILD_HOST="GitHub-Actions"
+          export KBUILD_BUILD_USER="spacealtctrl"
+          export KBUILD_BUILD_HOST="GitHub-Actions"
           
-          make O=out LLVM=1 LLVM_IAS=1 vendor/qcom/defs/${{ env.SONY_DEFCONFIG }}
-          make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
+          echo "Starting kernel compilation..."
+          make O=out LLVM=1 LLVM_IAS=1 -j$(nproc --all) || {
+            echo "Build failed, checking logs..."
+            tail -50 out/.config
+            exit 1
+          }
+          
+          echo "Build completed successfully!"
+          ls -la out/arch/arm64/boot/
 
-      - name: "Package into flashable zip"
+      - name: "Prepare AnyKernel3 package"
         run: |
+          # Clone AnyKernel3
           git clone --depth=1 "${{ env.ANYKERNEL_URL }}" "$GITHUB_WORKSPACE/AnyKernel3"
-          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/AnyKernel3/"
           cd "$GITHUB_WORKSPACE/AnyKernel3"
+          
+          # Remove existing files and add our kernel
+          rm -rf .git* README.md modules patch ramdisk tools anykernel.sh
+          cp "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}" ./
+          
+          # Create custom anykernel.sh for Sony Xperia 1V
+          cat > anykernel.sh << 'EOL'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          
+          ## AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Sony Xperia 1V KernelSU by spacealtctrl
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=pdx234
+          device.name2=Xperia 1 V
+          device.name3=XQ-DQ44
+          device.name4=XQ-DQ54
+          device.name5=XQ-DQ62
+          supported.versions=13-15
+          supported.patchlevels=
+          '; } # end properties
+          
+          # shell variables
+          block=boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          ## AnyKernel methods (DO NOT CHANGE)
+          # import patching functions/variables - see for reference
+          . tools/ak3-core.sh;
+          
+          ## AnyKernel boot install
+          dump_boot;
+          write_boot;
+          ## end boot install
+          EOL
+          
+          # Create flashable zip
           VERSION_SUFFIX="${{ inputs.version }}"
-          ZIP_NAME="Sony-pdx234-${{ inputs.kernelsu_variant }}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
-          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md"
+          SUSFS_SUFFIX=""
+          KPM_SUFFIX=""
+          if [ "${{ inputs.use_susfs }}" == "true" ]; then SUSFS_SUFFIX="-SUSFS"; fi
+          if [ "${{ inputs.use_kmp }}" == "true" ]; then KPM_SUFFIX="-KPM"; fi
+          
+          ZIP_NAME="Sony-Xperia1V-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
+          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"
+          
+          echo "Created flashable zip: $ZIP_NAME"
+          ls -la *.zip
 
-      - name: "Upload kernel artifacts"
+      - name: "Upload build artifacts"
         uses: actions/upload-artifact@v4
         with:
-          name: Sony-pdx234-Kernel-${{ github.run_id }}
+          name: Sony-Xperia1V-Kernel-${{ github.run_id }}
           path: |
-            $GITHUB_WORKSPACE/AnyKernel3/*.zip
-            $GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image
+            ${{ github.workspace }}/AnyKernel3/*.zip
+            ${{ github.workspace }}/kernel/out/arch/arm64/boot/Image
 
   get-manager:
-    name: Get Manager App
+    name: Download KernelSU Manager
     needs: build
     if: ${{ inputs.get_manager }}
     runs-on: ubuntu-latest
     steps:
-      - name: "Set up manager download info"
-        id: ksu_setup
+      - name: "Set manager repository"
         run: |
           variant="${{ inputs.kernelsu_variant }}"
           REPO=""
-          if [ "$variant" == "Official" ]; then REPO="tiann/KernelSU"; fi
-          if [ "$variant" == "Next" ]; then REPO="SukiSue/WeNext-KernelSU"; fi
-          if [ "$variant" == "MKSU" ]; then REPO="MlgmXyysd/MlgmXyysd-KernelSU"; fi
-          if [ "$variant" == "SukiSU" ] || [ "$variant" == "SukiSU-Ultra" ]; then REPO="SukiSue/SukiSU"; fi
+          case "$variant" in
+            "Official") REPO="tiann/KernelSU" ;;
+            "Next") REPO="rifsxd/KernelSU-Next" ;;
+            "MKSU") REPO="5ec1cff/KernelSU" ;;
+            "SukiSU"|"SukiSU-Ultra") REPO="SukiSue/SukiSU" ;;
+          esac
           echo "KSU_REPO=$REPO" >> $GITHUB_ENV
 
       - name: "Download manager APK"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber
+          if [ -n "${{ env.KSU_REPO }}" ]; then
+            echo "Downloading manager from ${{ env.KSU_REPO }}"
+            gh release download -R "${{ env.KSU_REPO }}" -p "*.apk" --clobber || echo "No APK found in releases"
+          fi
           
       - name: "Upload manager APK"
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Manager-APK-${{ inputs.kernelsu_variant }}
           path: "*.apk"
+
+  download-susfs-module:
+    name: Download SUSFS Module
+    needs: build
+    if: ${{ inputs.use_susfs }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Download SUSFS module"
+        run: |
+          echo "Downloading SUSFS userspace module..."
+          git clone --depth=1 "${{ env.SUSFS_MODULE_URL }}" susfs-module
+          cd susfs-module
+          if [ -f "*.zip" ]; then
+            cp *.zip ../
+          elif [ -d "release" ]; then
+            cp release/*.zip ../ 2>/dev/null || echo "No release files found"
+          fi
+          
+      - name: "Upload SUSFS module"
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SUSFS-Module-${{ github.run_id }}
+          path: "*.zip"

@@ -62,6 +62,7 @@ env:
   KPM_URL: "https://github.com/backslashxx/KPM.git"
   SUSFS_URL: "https://gitlab.com/simonpunk/susfs4ksu.git"
   SUSFS_MODULE_URL: "https://github.com/sidex15/susfs4ksu_su_module.git"
+  CLANG_URL: "https://github.com/ZyCromer/Clang-18.git"
   KERNEL_IMAGE_NAME: "Image"
   KBUILD_BUILD_USER: "spacealtctrl"
   KBUILD_BUILD_HOST: "GitHub-Actions"
@@ -85,8 +86,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses-dev \
+            git gnupg gperf imagemagick lib32ncurses6-dev lib32readline-dev \
+            lib32z1-dev libelf-dev liblz4-tool libncurses6-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
             rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio \
             unzip wget kmod dwarves python3
@@ -173,23 +174,44 @@ jobs:
 
       - name: Setup Clang Toolchain
         run: |
-          echo "Setting up ZyC Clang toolchain..."
-          git clone --depth=1 https://github.com/ZyCromer/Clang-19.git clang-toolchain
+          git clone --depth=1 ${{ env.CLANG_URL }} clang-toolchain
           echo "CLANG_PATH=$(pwd)/clang-toolchain/bin" >> $GITHUB_ENV
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
           
-      - name: Clone Kernel Source
+      - name: Clone Kernel and AnyKernel3
         run: |
-          echo "Cloning Sony kernel..."
           git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
+          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" AnyKernel3
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
 
-      - name: Clone AnyKernel3
+      - name: Prepare AnyKernel3
         run: |
-          echo "Cloning AnyKernel3..."
-          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" AnyKernel3
+          cd AnyKernel3
+          cat > anykernel.sh <<- EOL
+# AnyKernel3 Script
+properties() { '
+kernel.string=KernelSU for ${{ env.DEVICE_FRIENDLY_NAME }} by ${{ env.KBUILD_BUILD_USER }}
+do.devicecheck=1
+do.modules=0
+do.systemless=1
+do.cleanup=1
+do.cleanuponabort=0
+${{ env.ANYKERNEL_DEVICE_CHECKS }}
+supported.versions=${{ env.SUPPORTED_ANDROID_VERSIONS }}
+'; } # end properties
+
+block=boot;
+is_slot_device=1;
+ramdisk_compression=auto;
+patch_vbmeta_flag=auto;
+
+. tools/ak3-core.sh;
+
+dump_boot;
+write_boot;
+EOL
 
       - name: Integrate KernelSU
         run: |
@@ -213,7 +235,6 @@ jobs:
             exit 1
           fi
 
-          echo "Integrating ${{ inputs.kernelsu_variant }} using branch '$ksu_branch_arg'..."
           curl -LSs "$setup_script_url" | bash -s "$ksu_branch_arg"
 
       - name: Integrate SUSFS
@@ -229,10 +250,9 @@ jobs:
           fi
           
           cd "$KSU_DIR"
-          echo "Applying SUSFS patch inside $KSU_DIR..."
           patch_file="../../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
           if [ -f "$patch_file" ]; then
-            patch -p1 --forward --fuzz=3 < "$patch_file" || echo "::warning::SUSFS patch failed to apply. This might be expected."
+            patch -p1 --forward --fuzz=3 < "$patch_file" || echo "::warning::SUSFS patch failed to apply."
           else
             echo "::warning::SUSFS patch file not found."
           fi
@@ -252,7 +272,7 @@ jobs:
             bash "../KPM/patch-kernel.sh" --apply
           elif [ -d "../KPM/patches" ]; then
             for patch in ../KPM/patches/*.patch; do
-              [ -f "$patch" ] && git apply "$patch" || echo "::warning::Failed to apply KPM patch $(basename "$patch")"
+              [ -f "$patch" ] && git apply --ignore-whitespace "$patch" || echo "::warning::Failed to apply KPM patch $(basename "$patch")"
             done
           fi
 
@@ -261,15 +281,13 @@ jobs:
           cd ${{ env.KERNEL_PATH }}
           
           if [ "${{ inputs.use_lxc }}" == "true" ] && [ -f "../main/patches/lxc.patch" ]; then
-            echo "Applying LXC patch..."
-            git apply "../main/patches/lxc.patch" || echo "::warning::LXC patch failed to apply."
+            git apply --ignore-whitespace "../main/patches/lxc.patch" || echo "::warning::LXC patch failed to apply."
           fi
           
           if [ -d "../main/patches/core" ]; then
-            echo "Applying core patches..."
             for patch in ../main/patches/core/*.patch; do
               if [ -f "$patch" ]; then
-                git apply "$patch" || echo "::warning::Failed to apply core patch $(basename "$patch")"
+                git apply --ignore-whitespace "$patch" || echo "::warning::Failed to apply core patch $(basename "$patch")"
               fi
             done
           fi
@@ -280,16 +298,12 @@ jobs:
           
           export PATH="${{ env.CLANG_PATH }}:$PATH"
           
-          DEFCONFIG_PATH="arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}"
-          if [ ! -f "$DEFCONFIG_PATH" ]; then
+          DEFCONFIG_FILE="arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}"
+          if [ ! -f "$DEFCONFIG_FILE" ]; then
             echo "::warning::Defconfig '${{ env.KERNEL_DEFCONFIG }}' not found. Searching for alternatives..."
             FOUND_CONFIG=$(find arch/arm64/configs/ -name "*pdx${{ env.PDX_MODEL }}*.defconfig" -o -name "*yodo*.defconfig" -o -name "*nagara*.defconfig" | head -n 1)
-            if [ -z "$FOUND_CONFIG" ]; then
-              FOUND_CONFIG=$(find arch/arm64/configs/ -name "gki_defconfig" | head -n 1)
-            fi
-            if [ -z "$FOUND_CONFIG" ]; then
-              FOUND_CONFIG=$(find arch/arm64/configs/ -name "defconfig" | head -n 1)
-            fi
+            if [ -z "$FOUND_CONFIG" ]; then FOUND_CONFIG=$(find arch/arm64/configs/ -name "gki_defconfig" | head -n 1); fi
+            if [ -z "$FOUND_CONFIG" ]; then FOUND_CONFIG=$(find arch/arm64/configs/ -name "defconfig" | head -n 1); fi
 
             if [ -n "$FOUND_CONFIG" ]; then
               echo "Found alternative config: $FOUND_CONFIG"
@@ -300,11 +314,8 @@ jobs:
             fi
           fi
 
-          echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
-          
           make O=out LLVM=1 "${{ env.KERNEL_DEFCONFIG }}"
 
-          echo "Enabling additional kernel features..."
           cd out
           
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
@@ -330,56 +341,23 @@ jobs:
       - name: Build Kernel
         run: |
           cd ${{ env.KERNEL_PATH }}
-          
           export PATH="${{ env.CLANG_PATH }}:$PATH"
-          
-          echo "Starting kernel build..."
-          make O=out LLVM=1 -j$(nproc) || {
-            echo "::error::Kernel build failed. Check the log for compiler errors."
-            exit 1
-          }
-          echo "Kernel build successful."
+          make O=out LLVM=1 -j$(nproc) || { echo "::error::Build failed."; exit 1; }
 
       - name: Package Kernel
         run: |
           KERNEL_IMAGE_PATH="${{ env.KERNEL_PATH }}/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
           if [ ! -f "$KERNEL_IMAGE_PATH" ]; then
-            echo "::error::Kernel image not found at $KERNEL_IMAGE_PATH! Packaging failed."
+            echo "::error::Kernel image not found!"
             exit 1
           fi
 
+          cp "$KERNEL_IMAGE_PATH" AnyKernel3/
+          
           cd AnyKernel3
-          
-          cp "$KERNEL_IMAGE_PATH" ./
-          
-          cat > anykernel.sh <<- EOL
-# AnyKernel3 Script
-properties() { '
-kernel.string=KernelSU for ${{ env.DEVICE_FRIENDLY_NAME }} by ${{ env.KBUILD_BUILD_USER }}
-do.devicecheck=1
-do.modules=0
-do.systemless=1
-do.cleanup=1
-do.cleanuponabort=0
-${{ env.ANYKERNEL_DEVICE_CHECKS }}
-supported.versions=${{ env.SUPPORTED_ANDROID_VERSIONS }}
-'; } # end properties
-
-block=boot;
-is_slot_device=1;
-ramdisk_compression=auto;
-patch_vbmeta_flag=auto;
-
-. tools/ak3-core.sh;
-
-dump_boot;
-write_boot;
-EOL
-          
           VERSION_SUFFIX="${{ inputs.version }}"
           SUSFS_SUFFIX=$([ "${{ inputs.use_susfs }}" == "true" ] && echo "-SUSFS" || echo "")
           KPM_SUFFIX=$([ "${{ inputs.use_kpm }}" == "true" ] && echo "-KPM" || echo "")
-          
           ZIP_NAME="Sony-${{ env.DEVICE_FRIENDLY_NAME }}-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"

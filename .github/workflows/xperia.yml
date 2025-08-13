@@ -158,8 +158,9 @@ jobs:
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 build-tools
           
+          # Add the toolchain binaries to the PATH for all subsequent steps
+          echo "$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_PATH
           echo "CLANG_TRIPLE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "TOOLCHAIN_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
 
       - name: Clone Kernel
         run: |
@@ -259,7 +260,6 @@ jobs:
         run: |
           cd kernel
           
-          export PATH="${{ env.TOOLCHAIN_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"
@@ -292,7 +292,6 @@ jobs:
         run: |
           cd kernel
           
-          export PATH="${{ env.TOOLCHAIN_PATH }}:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export KBUILD_BUILD_USER="spacealtctrl"

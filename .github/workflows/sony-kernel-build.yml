@@ -2,10 +2,10 @@
 #
 # This workflow is a more robust and reliable version, designed to address common build failures.
 # Key Improvements:
-# 1.  **Reliable Toolchain**: Uses a specific, well-tested pre-built Clang toolchain (ZyC's clang) instead of relying on system packages. This ensures consistency.
-# 2.  **Safer Kernel Configuration**: Modifies the kernel .config using the kernel's own scripts (`scripts/config`). This is much safer than echoing directly into the file and correctly handles dependencies.
-# 3.  **Stricter Patching**: The workflow will now fail immediately if a critical patch cannot be applied cleanly. This prevents confusing errors later in the build.
-# 4.  **Improved Logging and Error Handling**: Provides clearer output and fails faster on errors.
+# 1.  **Structural Change**: AnyKernel3 is now cloned at the beginning of the process, before the kernel build, to match the user's preferred workflow structure.
+# 2.  **Corrected Permissions**: Includes the necessary permissions for the 'get-manager' job to download release assets.
+# 3.  **Reliable Toolchain**: Uses a specific, well-tested pre-built Clang toolchain instead of relying on system packages.
+# 4.  **Safer Kernel Configuration**: Modifies the kernel .config using the kernel's own scripts (`scripts/config`).
 
 name: Build Sony Xperia Kernel
 
@@ -94,8 +94,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses5 libncurses5-dev \
+            git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev \
+            lib32z1-dev libelf-dev liblz4-tool libncurses-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush \
             rsync schedtool squashfs-tools xsltproc zip zlib1g-dev cpio \
             unzip wget kmod dwarves python3
@@ -106,7 +106,6 @@ jobs:
           git config --global user.email "actions@github.com"
 
       - name: Set Device-Specific Variables
-        id: device_vars
         run: |
           case "${{ inputs.device }}" in
             "Xperia 1 VI (pdx245)")
@@ -196,6 +195,11 @@ jobs:
           git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
 
+      - name: Clone AnyKernel3
+        run: |
+          echo "Cloning AnyKernel3..."
+          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" AnyKernel3
+
       - name: Integrate KernelSU
         run: |
           cd ${{ env.KERNEL_PATH }}
@@ -283,10 +287,8 @@ jobs:
         run: |
           cd ${{ env.KERNEL_PATH }}
           
-          # Set build environment variables for make
           export PATH="${{ env.CLANG_PATH }}:$PATH"
           
-          # Find a valid defconfig
           DEFCONFIG_PATH="arch/arm64/configs/${{ env.KERNEL_DEFCONFIG }}"
           if [ ! -f "$DEFCONFIG_PATH" ]; then
             echo "::warning::Defconfig '${{ env.KERNEL_DEFCONFIG }}' not found. Searching for alternatives..."
@@ -300,7 +302,6 @@ jobs:
 
             if [ -n "$FOUND_CONFIG" ]; then
               echo "Found alternative config: $FOUND_CONFIG"
-              DEFCONFIG_PATH=$FOUND_CONFIG
               echo "KERNEL_DEFCONFIG=$(basename $FOUND_CONFIG)" >> $GITHUB_ENV
             else
               echo "::error::No suitable defconfig could be found!"
@@ -310,20 +311,16 @@ jobs:
 
           echo "Using defconfig: ${{ env.KERNEL_DEFCONFIG }}"
           
-          # Generate the initial .config
           make O=out LLVM=1 "${{ env.KERNEL_DEFCONFIG }}"
 
-          # Safely modify the .config using the kernel's own script
           echo "Enabling additional kernel features..."
           cd out
           
-          # Enable SUSFS if selected
           if [ "${{ inputs.use_susfs }}" == "true" ]; then
             ../../scripts/config --enable CONFIG_KSU_SUSFS
             ../../scripts/config --enable CONFIG_KSU_SUSFS_SU_HIDE
           fi
 
-          # Enable LXC if selected
           if [ "${{ inputs.use_lxc }}" == "true" ]; then
             ../../scripts/config --enable CONFIG_NAMESPACES
             ../../scripts/config --enable CONFIG_NET_NS
@@ -337,14 +334,12 @@ jobs:
 
           cd ..
           
-          # Regenerate the .config to apply changes and resolve dependencies
           make O=out LLVM=1 olddefconfig
 
       - name: Build Kernel
         run: |
           cd ${{ env.KERNEL_PATH }}
           
-          # Set build environment variables
           export PATH="${{ env.CLANG_PATH }}:$PATH"
           
           echo "Starting kernel build..."
@@ -356,20 +351,16 @@ jobs:
 
       - name: Package Kernel
         run: |
-          # Check if kernel image exists
           KERNEL_IMAGE_PATH="${{ env.KERNEL_PATH }}/out/arch/arm64/boot/${{ env.KERNEL_IMAGE_NAME }}"
           if [ ! -f "$KERNEL_IMAGE_PATH" ]; then
             echo "::error::Kernel image not found at $KERNEL_IMAGE_PATH! Packaging failed."
             exit 1
           fi
 
-          git clone --depth=1 "${{ env.ANYKERNEL_URL }}" AnyKernel3
           cd AnyKernel3
           
-          # Copy kernel image
           cp "$KERNEL_IMAGE_PATH" ./
           
-          # Create anykernel.sh
           cat > anykernel.sh <<- EOL
 # AnyKernel3 Script
 properties() { '
@@ -394,7 +385,6 @@ dump_boot;
 write_boot;
 EOL
           
-          # Create zip file
           VERSION_SUFFIX="${{ inputs.version }}"
           SUSFS_SUFFIX=$([ "${{ inputs.use_susfs }}" == "true" ] && echo "-SUSFS" || echo "")
           KPM_SUFFIX=$([ "${{ inputs.use_kpm }}" == "true" ] && echo "-KPM" || echo "")
@@ -402,7 +392,6 @@ EOL
           ZIP_NAME="Sony-${{ env.DEVICE_FRIENDLY_NAME }}-${{ inputs.kernelsu_variant }}${SUSFS_SUFFIX}${KPM_SUFFIX}${VERSION_SUFFIX:+-${VERSION_SUFFIX}}-$(date +'%Y%m%d').zip"
           
           zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "README.md" -x "*.zip"
-          echo "PACKAGED_ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -417,6 +406,8 @@ EOL
     needs: build
     if: ${{ inputs.get_manager }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Set Manager Repo
         run: |
@@ -452,7 +443,6 @@ EOL
     steps:
       - name: Download Module
         run: |
-          # Try cloning first, then fallback to direct download
           git clone --depth=1 "${{ env.SUSFS_MODULE_URL }}" susfs-module || \
           wget -q "https://github.com/sidex15/susfs4ksu_su_module/releases/latest/download/susfs4ksu_module.zip" -O susfs-module.zip
           
@@ -464,4 +454,3 @@ EOL
         with:
           name: SUSFS-Module-${{ github.run_id }}
           path: "susfs_module.zip"
-

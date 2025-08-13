@@ -158,12 +158,12 @@ jobs:
         run: |
           cd kernel
 
-          local ksu_branch_arg="main"
+          ksu_branch_arg="main"
           if [[ "${{ inputs.kernelsu_branch }}" == "Dev" ]]; then
             ksu_branch_arg="dev"
           fi
 
-          local setup_script_url=""
+          setup_script_url=""
           case "${{ inputs.kernelsu_variant }}" in
             "Official") setup_script_url="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;
             "Next") setup_script_url="https://raw.githubusercontent.com/rifsxd/KernelSU-Next/dev/kernel/setup.sh" ;;

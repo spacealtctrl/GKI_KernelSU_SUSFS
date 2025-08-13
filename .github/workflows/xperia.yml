@@ -87,12 +87,19 @@ jobs:
           # The gcc-toolchain path is also needed for the linker (ld)
           echo "GCC_PATH=$(pwd)/build-tools/linux-x86/bin" >> $GITHUB_ENV
 
-
       - name: Clone Kernel
         run: |
-          echo "Cloning Sony kernel..."
-          git clone --depth=1 -b "${{ inputs.android_version }}" "${{ env.SONY_KERNEL_URL }}" kernel || {
-            echo "Branch not found, cloning default..."
+          # Map user-friendly version to the actual Sony branch name
+          if [[ "${{ inputs.android_version }}" == "android14-5.15" ]]; then
+            SONY_BRANCH="aosp/SM8550.SOMC.5.15.r2"
+          else # Default to Android 13
+            SONY_BRANCH="aosp/SM8550.SOMC.5.15.r1"
+          fi
+          echo "Cloning Sony kernel from branch: $SONY_BRANCH"
+          
+          # Attempt to clone the specific branch, with a corrected fallback
+          git clone --depth=1 -b "$SONY_BRANCH" "${{ env.SONY_KERNEL_URL }}" kernel || {
+            echo "Branch $SONY_BRANCH not found, cloning default branch with depth=1..."
             git clone --depth=1 "${{ env.SONY_KERNEL_URL }}" kernel
           }
           echo "KERNEL_PATH=$(pwd)/kernel" >> $GITHUB_ENV
@@ -124,7 +131,8 @@ jobs:
           git config --global user.name "spacealtctrl"
           git config --global user.email "actions@github.com"
           
-          git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" ../KernelSU-source
+          # Use GIT_TERMINAL_PROMPT=0 to prevent interactive auth prompts on public repos
+          GIT_TERMINAL_PROMPT=0 git clone --depth=1 -b "${{ env.KSU_BRANCH }}" "${{ env.KSU_URL }}" ../KernelSU-source
           
           if [ -f "../KernelSU-source/kernel-patch.sh" ]; then
             patch_ver="Stable"

@@ -1,47 +1,103 @@
 name: Build Sony Xperia 1V Enhanced Kernel
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       kernel_source:
         description: 'Kernel Source'
-        required: false
+        required: true
         default: 'https://android.googlesource.com/kernel/common'
         type: string
       kernel_source_branch:
-        description: 'Branch'
-        required: false
+        description: 'Kernel Source Branch'
+        required: true
         default: 'android13-5.15-lts'
         type: string
       kernel_defconfig:
-        description: 'Defconfig'
-        required: false
+        description: 'Kernel Defconfig'
+        required: true
         default: 'gki_defconfig'
         type: string
+      clang_version:
+        description: 'Clang Version'
+        required: true
+        default: 'r487747c'
+        type: choice
+        options:
+          - r487747c
+          - r475365b
+          - r450784e
+          - r416183b
       enable_ksu:
         description: 'Enable KernelSU'
-        required: false
+        required: true
         default: true
         type: boolean
+      ksu_tag:
+        description: 'KernelSU Version'
+        required: false
+        default: 'main'
+        type: choice
+        options:
+          - main
+          - v0.9.5
+          - v0.9.4
+          - v0.9.3
       enable_susfs:
         description: 'Enable SUSFS'
+        required: true
+        default: true
+        type: boolean
+      susfs_version:
+        description: 'SUSFS Version'
+        required: false
+        default: '1.4.3'
+        type: choice
+        options:
+          - '1.4.3'
+          - '1.4.2'
+          - '1.4.1'
+          - main
+      enable_thermal_mgmt:
+        description: 'Enable Thermal Management Improvements'
+        required: true
+        default: true
+        type: boolean
+      enable_camera_opt:
+        description: 'Enable Camera Optimizations'
+        required: true
+        default: true
+        type: boolean
+      enable_display_opt:
+        description: 'Enable 4K 120Hz Display Optimizations'
+        required: true
+        default: true
+        type: boolean
+      enable_audio_opt:
+        description: 'Enable Audio Improvements'
+        required: true
+        default: true
+        type: boolean
+      enable_gaming_opt:
+        description: 'Enable Gaming Performance Tweaks'
+        required: true
+        default: true
+        type: boolean
+      build_boot_img:
+        description: 'Build Boot Image'
         required: false
         default: true
         type: boolean
-      enable_xperia_enhancements:
-        description: 'Enable Xperia 1V Specific Enhancements'
+      anykernel3:
+        description: 'Use AnyKernel3'
         required: false
         default: true
         type: boolean
-      build_lkm:
-        description: 'Build loadable kernel modules'
+      custom_name:
+        description: 'Custom Kernel Name (optional)'
         required: false
-        default: true
-        type: boolean
+        default: 'Xperia1V-Enhanced'
+        type: string
 
 jobs:
   build:
@@ -59,289 +115,240 @@ jobs:
 
     - name: Setup build environment
       run: |
+        echo "Free space:"
+        df -h
         sudo apt-get update
         sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
           libudev-dev libpci-dev libiberty-dev autoconf device-tree-compiler \
-          ccache git python3-pip ninja-build curl wget
+          git ccache automake lzop bsdmainutils curl libxml2-utils
+
+    - name: Set swap space
+      uses: pierotofy/set-swap-space@master
+      with:
+        swap-size-gb: 12
 
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
-        key: build-kernel-${{ github.run_id }}
+        key: build-kernel-xperia-${{ inputs.clang_version }}-${{ github.run_id }}
         restore-keys: |
-          build-kernel-
+          build-kernel-xperia-${{ inputs.clang_version }}-
 
     - name: Setup Clang
       run: |
         mkdir clang
         cd clang
-        wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r487747c.tar.gz
-        tar -xzf clang.tar.gz
+        wget -O clang.tar.xz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-${{ inputs.clang_version }}.tar.xz"
+        tar -xf clang.tar.xz
         echo "$(pwd)/bin" >> $GITHUB_PATH
 
     - name: Get kernel source
       run: |
-        git clone --depth=1 --single-branch --branch ${{ github.event.inputs.kernel_source_branch || 'android13-5.15-lts' }} \
-          ${{ github.event.inputs.kernel_source || 'https://android.googlesource.com/kernel/common' }} kernel-source
+        git clone --depth=1 --single-branch --branch ${{ inputs.kernel_source_branch }} \
+          ${{ inputs.kernel_source }} kernel-source
         cd kernel-source
         echo "KERNEL_VERSION=$(make kernelversion)" >> $GITHUB_ENV
 
     - name: Setup KernelSU
-      if: ${{ github.event.inputs.enable_ksu != 'false' }}
+      if: ${{ inputs.enable_ksu }}
+      working-directory: kernel-source
       run: |
-        cd kernel-source
-        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
-        echo "CONFIG_KPROBES=y" >> arch/arm64/configs/${{ github.event.inputs.kernel_defconfig || 'gki_defconfig' }}
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s ${{ inputs.ksu_tag }}
+        echo "KSU_GIT_VERSION=$(cd KernelSU && git rev-list --count HEAD)" >> $GITHUB_ENV
+        echo "KSU_VERSION=$(cd KernelSU && git describe --always --tags --dirty)" >> $GITHUB_ENV
+        echo "CONFIG_KPROBES=y" >> arch/arm64/configs/${{ inputs.kernel_defconfig }}
+        echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/${{ inputs.kernel_defconfig }}
+        echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/${{ inputs.kernel_defconfig }}
 
     - name: Setup SUSFS
-      if: ${{ github.event.inputs.enable_susfs != 'false' }}
+      if: ${{ inputs.enable_susfs }}
+      working-directory: kernel-source
       run: |
-        cd kernel-source
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git drivers/susfs
-        
-        # Add SUSFS to Kconfig and Makefile
+        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ inputs.susfs_version }} drivers/susfs
         echo "source \"drivers/susfs/Kconfig\"" >> drivers/Kconfig
         echo "obj-\$(CONFIG_SUSFS) += susfs/" >> drivers/Makefile
-        
-        # Enable SUSFS in config
-        cat >> arch/arm64/configs/${{ github.event.inputs.kernel_defconfig || 'gki_defconfig' }} << EOF
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
         CONFIG_SUSFS=y
         CONFIG_SUSFS_OPEN_REDIRECT=y
         CONFIG_SUSFS_SUS_PATH=y
         CONFIG_SUSFS_SUS_MOUNT=y
         CONFIG_SUSFS_SUS_KSTAT=y
         CONFIG_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_PATH=y
+        CONFIG_SUSFS_SUS_SU=y
         EOF
 
-    - name: Apply Sony Xperia 1V Enhancements
-      if: ${{ github.event.inputs.enable_xperia_enhancements != 'false' }}
+    - name: Apply Thermal Management Optimizations
+      if: ${{ inputs.enable_thermal_mgmt }}
+      working-directory: kernel-source
       run: |
-        cd kernel-source
-        
-        # Create enhancement patches directory
-        mkdir -p xperia_enhancements
-        
-        # Thermal Management Improvements
-        cat > xperia_enhancements/thermal_mgmt.patch << 'EOF'
-        --- a/drivers/thermal/thermal_core.c
-        +++ b/drivers/thermal/thermal_core.c
-        @@ -500,7 +500,7 @@ static void handle_thermal_trip(struct thermal_zone_device *tz,
-         		return;
-         	}
-         
-        -	if (tz->temperature >= trip->temperature) {
-        +	if (tz->temperature >= (trip->temperature + 5000)) {  /* Add 5C hysteresis for Xperia */
-         		/*
-         		 * The trip temperature has been crossed on the way up.
-         		 */
-        @@ -520,7 +520,7 @@ static void handle_thermal_trip(struct thermal_zone_device *tz,
-         		if (trip->type == THERMAL_TRIP_CRITICAL)
-         			return;
-         
-        -	} else if (tz->last_temperature >= trip->temperature &&
-        +	} else if (tz->last_temperature >= (trip->temperature + 3000) &&  /* Optimized cooling */
-         		   tz->temperature < trip->temperature - trip->hysteresis) {
-         		/*
-         		 * The trip temperature has been crossed on the way down.
-        EOF
-        
-        # Camera Optimizations
-        cat > xperia_enhancements/camera_opt.patch << 'EOF'
-        --- a/drivers/media/platform/msm/camera/cam_req_mgr/cam_req_mgr_dev.c
-        +++ b/drivers/media/platform/msm/camera/cam_req_mgr/cam_req_mgr_dev.c
-        @@ -50,6 +50,11 @@ static long cam_req_mgr_dev_ioctl(struct file *file, unsigned int cmd,
-         {
-         	int rc = 0;
-         	
-        +	/* Sony Xperia optimized camera scheduling */
-        +	if (current->policy != SCHED_FIFO && current->rt_priority < 10) {
-        +		struct sched_param param = { .sched_priority = 10 };
-        +		sched_setscheduler(current, SCHED_FIFO, &param);
-        +	}
-         	switch (cmd) {
-         	case CAM_REQ_MGR_CREATE_SESSION: {
-         		struct cam_req_mgr_session_info session_info;
-        EOF
-        
-        # Display Enhancements for 4K 120Hz
-        cat > xperia_enhancements/display_opt.patch << 'EOF'
-        --- a/drivers/gpu/drm/msm/dsi/dsi_host.c
-        +++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
-        @@ -2500,6 +2500,12 @@ int msm_dsi_host_init(struct msm_dsi *msm_dsi)
-         	msm_host->dev = dev;
-         	msm_host->id = id;
-         	
-        +	/* Sony Xperia 1V specific display optimizations */
-        +	if (of_device_is_compatible(dev->of_node, "qcom,dsi-ctrl-6g-core-v2-4-0")) {
-        +		/* Enable high refresh rate optimization */
-        +		msm_host->refresh_rate_optimization = true;
-        +		msm_host->max_refresh_rate = 120;
-        +	}
-         	platform_set_drvdata(pdev, msm_host);
-         	
-         	/* Get DSI regulators */
-        EOF
-        
-        # Audio Improvements
-        cat > xperia_enhancements/audio_opt.patch << 'EOF'
-        --- a/sound/soc/codecs/wcd938x.c
-        +++ b/sound/soc/codecs/wcd938x.c
-        @@ -4500,6 +4500,11 @@ static int wcd938x_probe(struct snd_soc_component *component)
-         	wcd938x->component = component;
-         	snd_soc_component_init_regmap(component, wcd938x->regmap);
-         	
-        +	/* Sony Xperia audio enhancements */
-        +	regmap_update_bits(wcd938x->regmap, WCD938X_HPH_NEW_INT_HPH_TIMER1,
-        +			   WCD938X_HPH_NEW_INT_HPH_TIMER1_AUTOCHOP_TIMER_EN_MASK,
-        +			   WCD938X_HPH_NEW_INT_HPH_TIMER1_AUTOCHOP_TIMER_EN_MASK);
-        +			   
-         	/* Set all interrupts as edge triggered */
-         	for (i = 0; i < wcd938x_regmap_irq_chip.num_regs; i++) {
-         		regmap_write(wcd938x->regmap,
-        EOF
-        
-        # Gaming Performance Tweaks - GPU Governor
-        cat > xperia_enhancements/gaming_gpu.patch << 'EOF'
-        --- a/drivers/gpu/msm/kgsl_pwrctrl.c
-        +++ b/drivers/gpu/msm/kgsl_pwrctrl.c
-        @@ -2800,6 +2800,15 @@ static void kgsl_pwrctrl_set_state(struct kgsl_device *device,
-         		if (device->state == KGSL_STATE_ACTIVE) {
-         			kgsl_pwrctrl_pwrlevel_change(device,
-         					pwr->default_pwrlevel);
-        +			
-        +			/* Sony Xperia gaming mode detection */
-        +			if (strstr(current->comm, "game") || 
-        +			    strstr(current->comm, "unity") ||
-        +			    strstr(current->comm, "unreal")) {
-        +				/* Set higher performance for gaming */
-        +				kgsl_pwrctrl_pwrlevel_change(device, 0);
-        +				pwr->thermal_timeout = jiffies + msecs_to_jiffies(30000);
-        +			}
-         		}
-         		kgsl_pwrctrl_set_thermal_cycle(pwr, interval);
-         		kgsl_pwrctrl_set_constraint(device, &device->pwrctrl,
-        EOF
-        
-        # Apply all patches
-        for patch in xperia_enhancements/*.patch; do
-          echo "Applying $(basename $patch)..."
-          patch -p1 < "$patch" || echo "Warning: $(basename $patch) failed to apply cleanly"
-        done
-        
-        # Add Xperia-specific kernel configurations
-        cat >> arch/arm64/configs/${{ github.event.inputs.kernel_defconfig || 'gki_defconfig' }} << EOF
-        
-        # Sony Xperia 1V Specific Optimizations
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        # Thermal Management Optimizations for Snapdragon 8 Gen 2
         CONFIG_THERMAL_GOV_USER_SPACE=y
         CONFIG_THERMAL_GOV_LOW_LIMITS=y
+        CONFIG_THERMAL_GOV_STEP_WISE=y
+        CONFIG_THERMAL_EMULATION=y
         CONFIG_LIMITS_MONITOR=y
         CONFIG_LIMITS_LITE_HW=y
-        
-        # Camera optimizations
+        CONFIG_MSM_BCL_CTL=y
+        CONFIG_MSM_BCL_PERIPHERAL_CTL=y
+        EOF
+
+    - name: Apply Camera Optimizations  
+      if: ${{ inputs.enable_camera_opt }}
+      working-directory: kernel-source
+      run: |
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        # Camera Optimizations for Sony Xperia
         CONFIG_MEDIA_CAMERA_SUPPORT=y
         CONFIG_VIDEO_V4L2_SUBDEV_API=y
         CONFIG_VIDEOBUF2_CORE=y
-        
-        # Display optimizations  
+        CONFIG_VIDEOBUF2_MEMOPS=y
+        CONFIG_VIDEOBUF2_DMA_CONTIG=y
+        CONFIG_MEDIA_CONTROLLER=y
+        CONFIG_VIDEO_ADV_DEBUG=y
+        CONFIG_SPECTRA_CAMERA=y
+        EOF
+
+    - name: Apply Display Optimizations
+      if: ${{ inputs.enable_display_opt }}
+      working-directory: kernel-source
+      run: |
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        # 4K 120Hz Display Optimizations
         CONFIG_FB_MSM_MDSS=y
         CONFIG_FB_MSM_MDSS_DSI_CTRL_STATUS=y
-        CONFIG_FB_MSM_MDSS_MDP3=y
-        
-        # Audio enhancements
+        CONFIG_FB_MSM_MDSS_XLOG_DEBUG=y
+        CONFIG_DRM_MSM=y
+        CONFIG_DRM_MSM_DSI=y
+        CONFIG_DRM_MSM_DP=y
+        CONFIG_BACKLIGHT_QCOM_WLED=y
+        CONFIG_DRM_PANEL_SONY_TULIP_CMD=y
+        EOF
+
+    - name: Apply Audio Optimizations
+      if: ${{ inputs.enable_audio_opt }}
+      working-directory: kernel-source
+      run: |
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        # Audio Improvements for Sony Xperia
         CONFIG_SND_SOC_WCD938X=y
         CONFIG_SND_SOC_WCD938X_SLAVE=y
         CONFIG_AUDIO_EXT_CLK=y
-        
-        # Gaming performance
+        CONFIG_SND_SOC_WCD_MBHC=y
+        CONFIG_WCD9XXX_CODEC_CORE=y
+        CONFIG_MSM_QDSP6V2_CODECS=y
+        CONFIG_MSM_ULTRASOUND=y
+        CONFIG_SND_SOC_MSM_QDSP6V2_INTF=y
+        EOF
+
+    - name: Apply Gaming Performance Tweaks
+      if: ${{ inputs.enable_gaming_opt }}
+      working-directory: kernel-source
+      run: |
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        # Gaming Performance Tweaks
         CONFIG_MSM_KGSL=y
         CONFIG_MSM_ADRENO_TZ=y
         CONFIG_MSM_ADRENO_DEFAULT_GOVERNOR="msm-adreno-tz"
-        
-        # Performance governors
         CONFIG_CPU_FREQ_GOV_INTERACTIVE=y
-        CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y
+        CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+        CONFIG_CPU_INPUT_BOOST=y
+        CONFIG_DYNAMIC_STUNE_BOOST=y
+        CONFIG_CPU_FREQ_TIMES=y
+        EOF
+
+    - name: Apply Base Performance Optimizations
+      working-directory: kernel-source
+      run: |
+        cat >> arch/arm64/configs/${{ inputs.kernel_defconfig }} << EOF
+        
+        # Base Performance Optimizations for Sony Xperia 1V
+        CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+        # CONFIG_CC_OPTIMIZE_FOR_SIZE is not set
+        
+        # CPU Governors
         CONFIG_CPU_FREQ_GOV_ONDEMAND=y
-        CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+        CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y
         CONFIG_CPU_FREQ_GOV_USERSPACE=y
         CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+        CONFIG_CPU_FREQ_GOV_POWERSAVE=y
         
         # I/O Schedulers
-        CONFIG_IOSCHED_DEADLINE=y
-        CONFIG_IOSCHED_CFQ=y
-        CONFIG_DEFAULT_DEADLINE=y
+        CONFIG_MQ_IOSCHED_DEADLINE=y
+        CONFIG_MQ_IOSCHED_KYBER=y
+        CONFIG_IOSCHED_BFQ=y
+        CONFIG_BFQ_GROUP_IOSCHED=y
         
-        # Memory optimizations
+        # Memory Management
         CONFIG_ZRAM=y
-        CONFIG_ZRAM_DEF_COMP_LZORLE=y
+        CONFIG_ZRAM_DEF_COMP_LZ4=y
         CONFIG_LZ4_COMPRESS=y
         CONFIG_LZ4_DECOMPRESS=y
+        CONFIG_ZSMALLOC=y
+        CONFIG_ZSMALLOC_STAT=y
         
-        # Security enhancements
-        CONFIG_SECURITY_SELINUX_DEVELOP=y
-        CONFIG_SECURITY_SELINUX_AVC_STATS=y
-        
-        # Network optimizations
+        # Network Optimizations  
+        CONFIG_TCP_CONG_ADVANCED=y
         CONFIG_TCP_CONG_BBR=y
         CONFIG_DEFAULT_TCP_CONG="bbr"
         
-        # Battery optimizations
-        CONFIG_POWERSUSPEND=y
-        CONFIG_CPU_INPUT_BOOST=y
+        # Security
+        CONFIG_SECURITY_SELINUX_DEVELOP=y
+        CONFIG_SECURITY_SELINUX_AVC_STATS=y
         
-        # Remove debugging overhead
+        # Remove debugging overhead for performance
         # CONFIG_DEBUG_INFO is not set
+        # CONFIG_SLUB_DEBUG is not set
+        # CONFIG_DEBUG_PREEMPT is not set
+        # CONFIG_DEBUG_BUGVERBOSE is not set
+        # CONFIG_FTRACE is not set
         # CONFIG_KASAN is not set
         # CONFIG_UBSAN is not set
-        # CONFIG_SLUB_DEBUG is not set
         EOF
 
     - name: Build kernel
+      working-directory: kernel-source  
       run: |
-        cd kernel-source
         export PATH="/usr/lib/ccache:$PATH"
         export KBUILD_BUILD_HOST=GitHub-Actions
         export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
+        args="
+        CC=clang
+        ARCH=arm64
+        CROSS_COMPILE=aarch64-linux-gnu-
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+        CLANG_TRIPLE=aarch64-linux-gnu-
+        O=out
+        -j$(nproc --all)
+        "
         
-        make -j$(nproc --all) CC="ccache clang" \
-          ARCH=arm64 \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          O=out \
-          ${{ github.event.inputs.kernel_defconfig || 'gki_defconfig' }}
-          
-        make -j$(nproc --all) CC="ccache clang" \
-          ARCH=arm64 \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          O=out \
-          Image.gz dtb
-          
-        if [ "${{ github.event.inputs.build_lkm }}" = "true" ]; then
-          make -j$(nproc --all) CC="ccache clang" \
-            ARCH=arm64 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            O=out \
-            modules
+        make ${args} ${{ inputs.kernel_defconfig }}
+        make ${args} Image.gz
+
+    - name: Check kernel image
+      working-directory: kernel-source
+      run: |
+        if [ -f out/arch/arm64/boot/Image.gz ]; then
+          echo "Kernel image built successfully"
+          echo "KERNEL_SIZE=$(stat -c%s out/arch/arm64/boot/Image.gz)" >> $GITHUB_ENV
+          echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
+        else
+          echo "Kernel image not found!"
+          exit 1
         fi
 
-    - name: Build AnyKernel3
+    - name: Prepare AnyKernel3
+      if: ${{ inputs.anykernel3 && env.BUILD_SUCCESS == 'true' }}
       run: |
-        git clone https://github.com/osm0sis/AnyKernel3.git ak3
-        cd ak3
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
         
-        # Configure AnyKernel3 for Sony Xperia 1 V
-        cat > anykernel.sh << 'EOF'
+        # Configure for Sony Xperia 1V
+        cat > AnyKernel3/anykernel.sh << 'EOF'
         # AnyKernel3 Ramdisk Mod Script
-        # osm0sis @ xda-developers
         
         ## AnyKernel setup
-        # begin properties
         properties() { '
-        kernel.string=Sony Xperia 1V Enhanced Kernel by ${{ github.actor }}
+        kernel.string=${{ inputs.custom_name }} by ${{ github.actor }}
         do.devicecheck=1
         do.modules=0
         do.systemless=1
@@ -351,98 +358,63 @@ jobs:
         device.name2=XQ-DQ62
         device.name3=XQ-DQ72
         device.name4=pdx234
-        device.name5=
         supported.versions=13
-        supported.patchlevels=
         '; } # end properties
         
-        # shell variables
         block=/dev/block/by-name/boot;
         is_slot_device=1;
         ramdisk_compression=auto;
         patch_vbmeta_flag=auto;
         
-        ## AnyKernel methods (DO NOT CHANGE)
-        # import patching functions/variables - see for reference
         . tools/ak3-core.sh;
-        
-        ## AnyKernel file attributes
-        # set permissions/ownership for included ramdisk files
-        set_perm_recursive 0 0 755 644 $ramdisk/*;
-        set_perm_recursive 0 0 750 750 $ramdisk/init* $ramdisk/sbin;
         
         ## AnyKernel install
         dump_boot;
-        
-        # begin ramdisk changes
-        
-        # Sony Xperia specific optimizations
-        if [ -f $ramdisk/init.sony.rc ]; then
-          # Add thermal optimizations
-          insert_line $ramdisk/init.sony.rc "on boot" $ramdisk/init.sony.rc "    write /sys/class/thermal/thermal_zone0/mode disabled"
-          insert_line $ramdisk/init.sony.rc "on boot" $ramdisk/init.sony.rc "    write /sys/class/thermal/thermal_zone1/mode disabled"
-          
-          # Audio optimizations  
-          insert_line $ramdisk/init.sony.rc "on boot" $ramdisk/init.sony.rc "    write /proc/sys/kernel/sched_boost 1"
-          
-          # Display optimizations
-          insert_line $ramdisk/init.sony.rc "on boot" $ramdisk/init.sony.rc "    write /sys/class/graphics/fb0/dynamic_fps 1"
-        fi;
-        
-        # end ramdisk changes
-        
         write_boot;
-        ## end install
         EOF
         
-        cp ../kernel-source/out/arch/arm64/boot/Image.gz .
-        if [ -f ../kernel-source/out/arch/arm64/boot/dtb ]; then
-          cp ../kernel-source/out/arch/arm64/boot/dtb .
-        fi
+        cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
         
         # Create flashable zip
-        zip -r9 "../Sony-Xperia-1V-Enhanced-Kernel-${{ env.KERNEL_VERSION }}-$(date +%Y%m%d-%H%M).zip" \
+        cd AnyKernel3
+        zip -r9 "../${{ inputs.custom_name }}-${{ env.KERNEL_VERSION }}-$(date +%Y%m%d-%H%M).zip" \
           * -x .git README.md *placeholder
 
     - name: Upload kernel image
+      if: ${{ env.BUILD_SUCCESS == 'true' }}
       uses: actions/upload-artifact@v4
       with:
-        name: Sony-Xperia-1V-Enhanced-Kernel-Image
+        name: ${{ inputs.custom_name }}-Image
         path: kernel-source/out/arch/arm64/boot/Image.gz
-        retention-days: 30
+        retention-days: 7
 
-    - name: Upload AnyKernel3 zip
+    - name: Upload AnyKernel3 flashable
+      if: ${{ inputs.anykernel3 && env.BUILD_SUCCESS == 'true' }}
       uses: actions/upload-artifact@v4  
       with:
-        name: Sony-Xperia-1V-Enhanced-Kernel-Flash
+        name: ${{ inputs.custom_name }}-Flashable
         path: "*.zip"
-        retention-days: 30
+        retention-days: 7
 
-    - name: Upload modules (if built)
-      if: ${{ github.event.inputs.build_lkm == 'true' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: Sony-Xperia-1V-Enhanced-Kernel-Modules
-        path: kernel-source/out/**/*.ko
-        retention-days: 30
-
-    - name: Build summary
+    - name: Build Summary
+      if: always()
       run: |
-        cd kernel-source
-        echo "## Build Information" >> $GITHUB_STEP_SUMMARY
+        echo "## Sony Xperia 1V Enhanced Kernel Build" >> $GITHUB_STEP_SUMMARY
+        echo "### Configuration" >> $GITHUB_STEP_SUMMARY
         echo "- **Kernel Version:** ${{ env.KERNEL_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Target Device:** Sony Xperia 1 V" >> $GITHUB_STEP_SUMMARY
-        echo "- **KernelSU:** ${{ github.event.inputs.enable_ksu }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **SUSFS:** ${{ github.event.inputs.enable_susfs }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Xperia Enhancements:** ${{ github.event.inputs.enable_xperia_enhancements }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Clang Version:** ${{ inputs.clang_version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Custom Name:** ${{ inputs.custom_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build Status:** ${{ env.BUILD_SUCCESS && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ env.BUILD_SUCCESS }}" = "true" ]; then
+          echo "- **Kernel Size:** $(echo ${{ env.KERNEL_SIZE }} | numfmt --to=iec-i)B" >> $GITHUB_STEP_SUMMARY
+        fi
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Enhanced Features:" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Thermal Management Improvements" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Camera Optimizations" >> $GITHUB_STEP_SUMMARY  
-        echo "- ✅ 4K 120Hz Display Enhancements" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Audio Processing Improvements" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Gaming Performance Tweaks" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Advanced CPU/GPU Governors" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Memory & I/O Optimizations" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ Network & Battery Optimizations" >> $GITHUB_STEP_SUMMARY
+        echo "### Features Enabled" >> $GITHUB_STEP_SUMMARY
+        echo "- **KernelSU:** ${{ inputs.enable_ksu && '✅' || '❌' }} ${{ inputs.enable_ksu && inputs.ksu_tag || '' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **SUSFS:** ${{ inputs.enable_susfs && '✅' || '❌' }} ${{ inputs.enable_susfs && inputs.susfs_version || '' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Thermal Management:** ${{ inputs.enable_thermal_mgmt && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Camera Optimizations:** ${{ inputs.enable_camera_opt && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Display Optimizations:** ${{ inputs.enable_display_opt && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Audio Improvements:** ${{ inputs.enable_audio_opt && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Gaming Performance:** ${{ inputs.enable_gaming_opt && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **AnyKernel3:** ${{ inputs.anykernel3 && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY

@@ -1,90 +1,87 @@
-### 这是一个自动构建GKI内核的仓库
+This is a repository that automatically builds GKI kernels
 
-> 非GKI可以尝试[SukiSU云盘](https://alist.shirkneko.top)的资源，不支持一加ColorOS14、15
+Non-GKI can try [SukiSU Cloud Drive] (https://alist.shirkneko.top) resources, does not support OnePlus ColorOS14,15
 >
-> 第一次使用务必**详细阅读**以下内容，不要因为懒惰而占用他人时间！
+The first time you use it must be read in detail, and don't take up other people's time because of laziness!
 >
-> 最近更新：1.一加8ELITE处理器可使用6.6内核(未测试)、2.修复这些GKI版本编译报错——[5.10.(66、81、101)、5.15.(74、94、104)]
-### 下载
-可以[在此](https://github.com/zzh20188/GKI_KernelSU_SUSFS/releases)下载您的资源
-1. 关于Anykernel3.zip，下载即用！
-- 然后使用刷入软件，例如[HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases)进行刷写内核
-2. 关于boot.img，下载与你内核格式相匹配的（无压缩、gz、lz4），[参考](https://kernelsu.org/zh_CN/guide/installation.html#install-by-kernelsu-boot-image) **找到合适的 boot.img** 一节
-- 使用[FASTBOOT](https://magiskcn.com/)刷入，或者使用刷写软件刷写到ROOT所在插槽的boot分区(例如爱玩机、Kernelflasher)
+> Last Updated: 1. One plus 8ELITE processor can use 6.6 cores (not tested), 2. Fix these GKI versions to compile error - [5.10.( 66, 81, 101, 5.15. 74, 94, 104)]
+### Download
+You can download your resources [here] (https://github.com/zzh20188/GKKernelSU_SUSFS/releases)
+1. About Anyoneel3.zip, Download Now!
+- Then use the swipe-in software, such as [HorizonKernelFlasher] (https://github.com/libxzr/HorizonKernelFlasher/releases) to swipe the kernel
+2. For boot.img, download the format that matches your kernel format (uncompressed, gz, lz4), [reference] (https://kernelsu.org/en_CN/guide/installation.html#install-by-kernelsu-boot-image) **Find the right boot.img** section
+- Use [FASTBOOT] (https://magiskcn.com/) to swipe in, or use swipe software to swipe to the boot partition of the ROOT slot (e.g., fun game console, Kernelflasher)
 
-### 支持
-| 功能 | 说明 |
-| --- | --- |
-| [KernelSU](https://kernelsu.org/zh_CN/) | 包括**原版、MKSU、SUKISU、NEXT** |
-| [SUSFS4](https://gitlab.com/simonpunk/susfs4ksu) | 在内核层面辅助KSU隐藏的功能补丁 |
-| [BBR](https://blog.thinkin.top/archives/ke-pu-bbrdao-di-shi-shi-me) | TCP拥塞控制算法，使网络更快？ |
-| [Wireguard](https://zh.wikipedia.org/wiki/WireGuard) | 参考左侧wiki链接 |
-| [LZ4KD](https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | 听说是来自HUAWEI source的ZRAM算法，补丁由[云彩之枫](http://www.coolapk.com/u/24963680)移植 |
+### Support
+Functions | Descriptions |
+| -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+| [KernelSU] (https://kernelsu.org/en_CN/) | Includes ** Original, MKSU, SUKISU, NEXT** |
+| [SUSFS4] (https://gitlab.com/simonpunk/susfs4ksu) | Features of KSU's hidden features at the kernel level |
+| [BBR](https://blog.thinkin.top/archives/ke-pu-bbrdao-di-shi-shi-me) | TCP Congestion Control Algorithm to Make the Web Faster? | |
+| [Wireguard] (https://zh.wikipedia.org/wiki/WireGuard) | Refer to the wiki link on the left |
+| [LZ4KD] (https://github.com/ShirkNeko/SukiSU_patch/tree/main/other) | I heard of the ZRAM algorithm from HUAWEI source, patched by [Cloud Maple] (http://www.coolapk.com/u/24963680) |
 
 <details>
 
-<summary>还支持这几种算法，可在scene的ZRAM切换</summary>
+<summary> also supports these algorithms, which can be switched between Scene's ZRAM</summary>
 
-### LZ4K、LZ4HC、deflate、842、~~zstdn~~、lz4k_oplus
+LZ4K, LZ4HC, deflate, 842, ~zstdn~~, lz4k_oplus
 
 </details>
 
-### KSU管理器
-在编译完成后，你会看到类似 `Next-Manager(12600)`的文件，简单来说这就是与内核一同上传的***最新管理器***。
-![例子](./assets/get_manager.gif)
-同样的，在[Release](https://github.com/zzh20188/GKI_KernelSU_SUSFS/releases)也同样包含***最新管理器***！
-![release](./assets/release_manager.gif)
+The KSU Manager
+After the compilation is complete, you will see a file like Next-Manager (12600), which is simply the latest manager uploaded with the kernel.
+![ Example] (./assets/get_manager.gif)
+Similarly, in [Release] (https://github.com/zzh20188/GKKernelSU_SUSFS/releases) also contains the latest manager***!
+![ release](./assets/release_manager.gif)
 
-### 紧急救援指南
+Emergency assistance guidelines
 
-> [!IMPORTANT]
-> **触发条件**  
-> 当设备因以下原因无法启动时需执行救援：  
-> - 刷入错误/不兼容的内核
-> - 内核版本适配异常（如5.10.66刷233版本的内核）
-1. 进入FASTBOOT模式
+> [! IMPORTANT]
+> **Trigger conditions**  
+> Rescue when the device cannot be started due to:  
+> - Brush into the wrong/incompatible kernel
+> - Kernel version adaptation exception (such as 5.10.66 brush 233 version of the kernel)
+1. Go to Fastboot mode
 
-- 物理键组合：电源+音量- 或者 ADB命令： `adb reboot bootloader`
+- Physical key combination: power + volume - or ADB command: `adb reboot bootloader`
 
-2. 执行刷写命令
-```bash
-$ fastboot flash boot <boot.img文件全称>
-```
-### 原版镜像获取途径
-1. 从现有固件提取
+2. Execute the brushing command
+"Bash"
+$ fastboot flash boot <boot.img file full name>
+"```
+### The original mirror access
+1. Extract from existing firmware
 
-- 卡刷包：解压后使用[payload-dumper工具](https://magiskcn.com/payload-dumper-go-boot.html)
+- Card swipe package: use [payload-dumper tool] after decompression (https://magiskcn.com/payload-dumper-go-boot.html)
 
-- 线刷包：直接解压获取boot.img
+- Wire brush package: directly unpack to get boot.img
 
-2.外部资源获取
+2. Access to external resources
 
-- 社区平台搜索：机型+原厂boot (如XDA/酷安)
+- Community platform search: Model + original boot (such as XDA/Cool)
 
-- [移动端在线提取远程获取](https://magiskcn.com/payload-dumper-compose.html)
+- [Mobile online extraction remote acquisition] (https://magiskcn.com/payload-dumper-compose.html)
 
-> [!TIP]
-> ### 内核版本兼容性说明
+> [! TIP]
+> ### Kernel Version Compatibility Instructions
 > 
-> **1. 跨子版本刷机规则**  
-> 当手机GKI主版本为5.10.x时（如5.10.168），可刷写同主版本更高子版本的内核（如5.10.198）。  
-> 关于**X-lts**版本，以 `android12-5.10.X-lts-AnyKernel3.zip` 为例：
-> - **X-lts** 表示长期支持版（子版本号最大，当前示例为5.10.236）
-> - LTS随着GKI源码更新，编译版本号将持续递增（其他如198的版本，是永久固定的）
-> - ⚠️ 注意：LTS虽为最新，**但**最新版≠最稳定（如6.6.x存在自动重启BUG）
+> **1. Cross-sub-version brushing rules**  
+When the main version of the phone GKI is 5.10.x (such as 5.10.168), you can swipe the kernel of the same main version of the older sub-version (such as 5.10.198).  
+> About the **X-lts** version, to `android12-5.10. X-lts-AnyKernel3.zip` for example:
+> - **X-lts** indicates long-term support (maximum sub-version number, current example 5.10.236)
+> - LTS with GKI source code updates, the compiled version number will continue to increase (other versions, such as 198, are permanently fixed)
+> - ⚠️ Note: LTS is the latest, ** but the latest version ≠ is the most stable (such as 6.6.x exists automatically restarted BUG)
 > 
-> **2. 内核版本伪装方法**  
-> 在MT管理器终端执行：
-> ```bash
+> **2. Kernel version camouflage method**  
+> Execute at the MT Manager terminal:
+> "`bash"
 > uname -r | sed 's/^[^-]*//'
-> ```
-> 获取后直接复制，将此版本号填入Action编译面板即可实现内核版本伪装。
+>"
+> Copy directly after getting it, and fill this version number into the Action compilation panel to enable kernel version camouflage.
 > 
-> **3. 编译优化建议**  
-> 修改 [配置文件](.github/workflows/kernel-a12-5.10.yml)（如kernel-a12-5.10.yml）：
-> - ▶️ 删除/注释不需要的GKI版本配置（**加速编译**）
-> - ➕ 添加指定GKI版本（参考[定制指南](https://www.coolapk.com/feed/62820671?shareKey=OGMxYmZmNTk0YzIxNjgxNzM1MzI~&shareUid=11253396&shareFrom=com.coolapk.market_15.2.2)）
-> - 📅 内核构建时间，参照[gki-kernel.yml](.github/workflows/gki-kernel.yml) 文件 **`第490行左右的注释`** 进行修改
-
-### 更多内容
-可以提及您的意见...我会尝试！
+> **3. Compilation Optimization Suggestions**  
+> Modify the [profile] (.github/workflows/kernel-a12-5.10.yml) (e.g. kernel-a12-5.10.yml):
+> - ▶️ Delete/Recommended GKI version configuration (**accelerated compilation**)
+> - ➕ Add the specified GKI version (see [custom guide] (https://www.coolapk.com/feed/62820671?) shareKey=OGMxYmZmNTk0YzIxNjgxNzM1MzI~&shareUid=11253396&shareFrom.apcoolk.market_15.2.2)
+> - 📅 Kernel build time, with reference to [gki-kernel.yml] (.github/workflows/gki-kernel.yml) file **`Notes around line 490`**

@@ -4,7 +4,7 @@ permissions:
   actions: write   # Allows triggering actions
 
 on:
-  workflow_call: # This allows this workflow to be called from another workflow
+  workflow_dispatch: # Allow manual triggering
     inputs:
       make_release:
         required: true
@@ -106,19 +106,31 @@ jobs:
         run: |
           echo "Downloading toolchain..."
           
-          # Download Clang (updated for LineageOS 22.2 / Android 15)
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android15-release --depth 1 --single-branch clang
+          # Download Clang (fallback to available branch if android15-release doesn't exist)
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b main --depth 1 --single-branch clang || \
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android14-release --depth 1 --single-branch clang
           
-          # Download GCC cross-compilers (updated for LineageOS 22.2 / Android 15)
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b android15-release --depth 1 gcc-arm64
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 -b android15-release --depth 1 gcc-arm
+          # Download GCC cross-compilers (fallback to available branch)
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b main --depth 1 gcc-arm64 || \
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b android14-release --depth 1 gcc-arm64
           
-          # Download mkbootimg (updated for LineageOS 22.2 / Android 15)
-          git clone https://android.googlesource.com/platform/system/tools/mkbootimg -b android15-release --depth 1 mkbootimg
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 -b main --depth 1 gcc-arm || \
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 -b android14-release --depth 1 gcc-arm
+          
+          # Download mkbootimg (fallback to available branch)
+          git clone https://android.googlesource.com/platform/system/tools/mkbootimg -b main --depth 1 mkbootimg || \
+          git clone https://android.googlesource.com/platform/system/tools/mkbootimg -b android14-release --depth 1 mkbootimg
 
       - name: Set environment variables
         run: |
-          echo "CLANG_PATH=$GITHUB_WORKSPACE/clang/clang-r522817/bin" >> $GITHUB_ENV
+          # Find the actual clang directory and set path
+          CLANG_DIR=$(find $GITHUB_WORKSPACE/clang -name "clang-r*" -type d | head -1)
+          if [ -z "$CLANG_DIR" ]; then
+            CLANG_DIR="$GITHUB_WORKSPACE/clang/bin"
+          else
+            CLANG_DIR="$CLANG_DIR/bin"
+          fi
+          echo "CLANG_PATH=$CLANG_DIR" >> $GITHUB_ENV
           echo "GCC_ARM64_PATH=$GITHUB_WORKSPACE/gcc-arm64/bin" >> $GITHUB_ENV
           echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/gcc-arm/bin" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
@@ -142,8 +154,9 @@ jobs:
           # Clone AnyKernel3 for Sony devices
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b gki-2.0 AnyKernel3
 
-          # Clone SUSFS patches (using Android 15 / 6.1 kernel branch)
-          git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android15-6.1 susfs4ksu
+          # Clone SUSFS patches (try Android 15 first, fallback to Android 14)
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android15-6.1 susfs4ksu || \
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android14-6.1 susfs4ksu
           
           # Clone additional patches
           git clone https://github.com/WildPlusKernel/kernel_patches.git
@@ -201,8 +214,15 @@ jobs:
 
           echo "Applying SUSFS patches..."
 
-          # Copy SUSFS patches - adapt for 6.1 kernel (Android 15 / LineageOS 22.2)
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.1.patch ./
+          # Copy SUSFS patches - try Android 15 first, fallback to Android 14
+          if [ -f "../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.1.patch" ]; then
+            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.1.patch ./susfs_patch.patch
+          elif [ -f "../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch" ]; then
+            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./susfs_patch.patch
+          else
+            echo "Error: Could not find SUSFS kernel patch"
+            exit 1
+          fi
           cp ../susfs4ksu/kernel_patches/fs/* ./fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
 
@@ -236,7 +256,7 @@ jobs:
 
           cd ..
           echo "Applying main SUSFS patch to kernel..."
-          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android15-6.1.patch || true
+          patch -p1 --fuzz=3 < susfs_patch.patch || true
 
       - name: Apply additional hooks patches
         run: |
@@ -410,8 +430,8 @@ jobs:
               
             ccache --show-stats
 
-      - name: Patch Image file for KPM (SukiSU only)
-        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
+      - name: Patch Image file for KMP (SukiSU only)
+        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           echo "Patching Image file for KPM..."
           cd kernel

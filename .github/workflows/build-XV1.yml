@@ -1,7 +1,32 @@
-name: Build Xperia 1 V kernel with SukiSU Ultra + susFS + KPM
+name: Sony Xperia 1 V Kernel Build (SukiSU Ultra + susFS + KPM)
 
 on:
   workflow_dispatch:
+    inputs:
+      android_version:
+        description: "Android version"
+        required: true
+        default: "android15"
+      kernel_branch:
+        description: "Kernel branch"
+        required: true
+        default: "lineage-22.2"
+      defconfig_url:
+        description: "Raw URL to pdx234_defconfig"
+        required: true
+        default: "https://raw.githubusercontent.com/spacealtctrl/android_kernel_sony_sm8550/lineage-22.2/arch/arm64/configs/vendor/sony/pdx234_defconfig"
+      use_sukisu:
+        description: "Use SukiSU Ultra"
+        required: true
+        default: "true"
+      use_susfs:
+        description: "Apply susFS patches"
+        required: true
+        default: "true"
+      use_kpm:
+        description: "Apply KPM patches"
+        required: true
+        default: "true"
 
 jobs:
   build:
@@ -16,28 +41,45 @@ jobs:
       MAKE_JOBS: "8"
 
     steps:
-      - name: Checkout this repo (patch scripts)
+      - name: Checkout this repo
         uses: actions/checkout@v4
+
+      - name: Maximize build space
+        uses: AdityaGarg8/remove-unwanted-software@v5
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          remove-large-packages: 'true'
+          remove-swapfile: 'true'
+          verbose: 'true'
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex g++-multilib gcc-multilib \
-            git gperf libncurses-dev libssl-dev libtinfo5 \
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gperf libncurses-dev libssl-dev \
             libxml2-utils lzop pkg-config python3 rsync unzip wget xz-utils zip zlib1g-dev
 
       - name: Prepare workspace
         run: mkdir -p workspace
 
-      - name: Clone kernel source (your fork)
+      - name: Clone Sony kernel source
         working-directory: workspace
         run: |
-          git clone --depth 1 --single-branch --branch lineage-22.2 \
+          git clone --depth 1 --branch ${{ inputs.kernel_branch }} \
             https://github.com/spacealtctrl/android_kernel_sony_sm8550 kernel
           echo "KERNEL_TOP=$(pwd)/kernel" >> $GITHUB_ENV
 
-      - name: Fetch Android 15 clang toolchain
+      - name: Download pdx234_defconfig
+        working-directory: ${{ env.KERNEL_TOP }}
+        run: |
+          mkdir -p arch/arm64/configs/vendor/sony
+          curl -L "${{ inputs.defconfig_url }}" -o arch/arm64/configs/vendor/sony/pdx234_defconfig
+
+      - name: Fetch Android 15 Clang toolchain
         working-directory: workspace
         run: |
           mkdir -p toolchains && cd toolchains
@@ -46,27 +88,20 @@ jobs:
           mkdir -p clang && tar -xf clang.tar.xz -C clang --strip-components=1
           echo "$(pwd)/clang/bin" >> $GITHUB_PATH
 
-      - name: Download pdx234_defconfig
-        working-directory: ${{ env.KERNEL_TOP }}
-        run: |
-          mkdir -p arch/arm64/configs/vendor/sony
-          curl -L \
-            https://raw.githubusercontent.com/spacealtctrl/android_kernel_sony_sm8550/lineage-22.2/arch/arm64/configs/vendor/sony/pdx234_defconfig \
-            -o arch/arm64/configs/vendor/sony/pdx234_defconfig
-
-      - name: Apply SukiSU Ultra + susFS + KPM patches
+      - name: Apply SukiSU Ultra (if enabled)
+        if: ${{ inputs.use_sukisu == 'true' }}
         working-directory: workspace
         run: |
-          # Clone SukiSU Ultra
-          git clone --depth=1 https://github.com/sukisu-ultra/sukisu-ultra suki
-          cd suki
+          git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra suki
+          bash suki/scripts/apply.sh "${KERNEL_TOP}"
 
-          # Apply kernel patch (adjust path if needed)
-          bash scripts/apply.sh "${KERNEL_TOP}"
+      - name: Apply susFS (if enabled)
+        if: ${{ inputs.use_susfs == 'true' }}
+        run: bash scripts/apply_susfs.sh "${KERNEL_TOP}"
 
-          # If susFS/KPM need extra patches, apply them here
-          # Example: bash ../GKI_KernelSU_SUSFS/scripts/apply_susfs.sh "${KERNEL_TOP}"
-          # Example: bash ../GKI_KernelSU_SUSFS/scripts/apply_kpm.sh "${KERNEL_TOP}"
+      - name: Apply KPM (if enabled)
+        if: ${{ inputs.use_kpm == 'true' }}
+        run: bash scripts/apply_kpm.sh "${KERNEL_TOP}"
 
       - name: Configure kernel
         working-directory: ${{ env.KERNEL_TOP }}
@@ -90,10 +125,10 @@ jobs:
           cp "${KERNEL_TOP}/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
           cp "${KERNEL_TOP}/out/arch/arm64/boot/dtbo.img" ./dtbo.img || true
           rsync -a "${KERNEL_TOP}/out/modules_install/lib/modules/" ./modules/ || true
-          zip -r9 "../kernel-pdx234-sukisu-$(date +%Y%m%d).zip" ./*
+          zip -r9 "../kernel-pdx234-sukisu-${{ inputs.android_version }}.zip" ./*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-artifacts
+          name: sony-kernel-${{ inputs.android_version }}
           path: workspace/*.zip

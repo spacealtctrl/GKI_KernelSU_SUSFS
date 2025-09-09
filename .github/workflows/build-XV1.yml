@@ -338,7 +338,7 @@ jobs:
           fi
           
           # Create anykernel.sh configuration
-          cat > anykernel.sh << 'EOF'
+          cat > anykernel.sh << "EOF"
 # AnyKernel3 Ramdisk Mod Script
 # osm0sis @ xda-developers
 

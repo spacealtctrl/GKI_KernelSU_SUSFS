@@ -1,134 +1,150 @@
-name: Sony Xperia 1 V Kernel Build (SukiSU Ultra + susFS + KPM)
+name: Build Xperia 1 V Kernel (LineageOS 22.2 / Android 15)
 
 on:
   workflow_dispatch:
     inputs:
-      android_version:
-        description: "Android version"
-        required: true
-        default: "android15"
       kernel_branch:
-        description: "Kernel branch"
+        description: 'Kernel branch'
         required: true
-        default: "lineage-22.2"
+        default: 'lineage-22.2'
       defconfig_url:
-        description: "Raw URL to pdx234_defconfig"
+        description: 'Raw URL of pdx234_defconfig'
         required: true
-        default: "https://raw.githubusercontent.com/spacealtctrl/android_kernel_sony_sm8550/lineage-22.2/arch/arm64/configs/vendor/sony/pdx234_defconfig"
+        default: 'https://raw.githubusercontent.com/spacealtctrl/android_kernel_sony_sm8550/lineage-22.2/arch/arm64/configs/vendor/sony/pdx234_defconfig'
       use_sukisu:
-        description: "Use SukiSU Ultra"
+        description: 'Apply SukiSU Ultra'
         required: true
-        default: "true"
+        default: 'true'
       use_susfs:
-        description: "Apply susFS patches"
+        description: 'Apply susFS'
         required: true
-        default: "true"
+        default: 'true'
       use_kpm:
-        description: "Apply KPM patches"
+        description: 'Apply KPM'
         required: true
-        default: "true"
+        default: 'true'
+      anykernel_repo:
+        description: 'AnyKernel3 repo'
+        required: true
+        default: 'https://github.com/osm0sis/AnyKernel3'
+      device_codename:
+        description: 'Device codename for AnyKernel3'
+        required: true
+        default: 'pdx234'
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     env:
       ARCH: arm64
       SUBARCH: arm64
-      LLVM: "1"
-      LLVM_IAS: "1"
-      KBUILD_BUILD_USER: "ci"
-      KBUILD_BUILD_HOST: "github"
-      MAKE_JOBS: "8"
+      LLVM: '1'
+      LLVM_IAS: '1'
+      KBUILD_BUILD_USER: 'ci'
+      KBUILD_BUILD_HOST: 'github'
+      MAKEFLAGS: '-j8'
+      KERNEL_FORK: 'https://github.com/spacealtctrl/android_kernel_sony_sm8550'
+      KSRC: ${{ github.workspace }}/workspace/kernel
 
     steps:
-      - name: Checkout this repo
+      - name: Checkout GKI_KernelSU_SUSFS
         uses: actions/checkout@v4
 
-      - name: Maximize build space
-        uses: AdityaGarg8/remove-unwanted-software@v5
-        with:
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-          remove-large-packages: 'true'
-          remove-swapfile: 'true'
-          verbose: 'true'
-
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex \
-            g++-multilib gcc-multilib git gperf libncurses-dev libssl-dev \
-            libxml2-utils lzop pkg-config python3 rsync unzip wget xz-utils zip zlib1g-dev
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex g++-multilib \
+            gcc-multilib git gperf libncurses-dev libssl-dev \
+            libtinfo5 libxml2-utils lzop pkg-config python3 \
+            rsync unzip wget xz-utils zip zlib1g-dev
 
       - name: Prepare workspace
         run: mkdir -p workspace
 
-      - name: Clone Sony kernel source
+      - name: Clone Xperia 1 V kernel
         working-directory: workspace
         run: |
-          git clone --depth 1 --branch ${{ inputs.kernel_branch }} \
-            https://github.com/spacealtctrl/android_kernel_sony_sm8550 kernel
-          echo "KERNEL_TOP=$(pwd)/kernel" >> $GITHUB_ENV
-
-      - name: Download pdx234_defconfig
-        working-directory: ${{ env.KERNEL_TOP }}
-        run: |
-          mkdir -p arch/arm64/configs/vendor/sony
-          curl -L "${{ inputs.defconfig_url }}" -o arch/arm64/configs/vendor/sony/pdx234_defconfig
+          git clone --depth=1 \
+            --branch "${{ inputs.kernel_branch }}" \
+            "${{ env.KERNEL_FORK }}" \
+            kernel
 
       - name: Fetch Android 15 Clang toolchain
         working-directory: workspace
         run: |
           mkdir -p toolchains && cd toolchains
-          CLANG_URL="https://commondatastorage.googleapis.com/android-ci/clang/clang-r530567.tar.xz"
-          wget -q "$CLANG_URL" -O clang.tar.xz
-          mkdir -p clang && tar -xf clang.tar.xz -C clang --strip-components=1
-          echo "$(pwd)/clang/bin" >> $GITHUB_PATH
+          CLANG_TAG=clang-r530567
+          # Stream-download & extract the tag in one go
+          curl -sL \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/${CLANG_TAG}.tar.gz" \
+            | tar xz --strip-components=1
+          echo "${PWD}/bin" >> $GITHUB_PATH
 
-      - name: Apply SukiSU Ultra (if enabled)
+      - name: Show clang version
+        run: |
+          clang --version
+          ld.lld --version
+
+      - name: Inject defconfig
+        working-directory: ${{ env.KSRC }}
+        run: |
+          mkdir -p arch/arm64/configs/vendor/sony
+          curl -L "${{ inputs.defconfig_url }}" \
+            -o arch/arm64/configs/vendor/sony/pdx234_defconfig
+
+      - name: Apply SukiSU Ultra
         if: ${{ inputs.use_sukisu == 'true' }}
         working-directory: workspace
         run: |
           git clone --depth=1 https://github.com/SukiSU-Ultra/SukiSU-Ultra suki
-          bash suki/scripts/apply.sh "${KERNEL_TOP}"
+          bash suki/scripts/apply.sh "${{ env.KSRC }}"
 
-      - name: Apply susFS (if enabled)
+      - name: Apply susFS
         if: ${{ inputs.use_susfs == 'true' }}
-        run: bash scripts/apply_susfs.sh "${KERNEL_TOP}"
+        run: |
+          bash scripts/apply_susfs.sh "${{ env.KSRC }}"
 
-      - name: Apply KPM (if enabled)
+      - name: Apply KPM
         if: ${{ inputs.use_kpm == 'true' }}
-        run: bash scripts/apply_kpm.sh "${KERNEL_TOP}"
+        run: |
+          bash scripts/apply_kpm.sh "${{ env.KSRC }}"
 
-      - name: Configure kernel
-        working-directory: ${{ env.KERNEL_TOP }}
-        run: make O=out vendor/sony/pdx234_defconfig
+      - name: Defconfig & olddefconfig
+        working-directory: ${{ env.KSRC }}
+        run: |
+          make O=out vendor/sony/pdx234_defconfig
+          # ensure new CONFIG_* flags are merged
+          make -C . O=out olddefconfig
 
-      - name: Build kernel
-        working-directory: ${{ env.KERNEL_TOP }}
-        run: make -j${MAKE_JOBS} O=out
+      - name: Compile kernel
+        working-directory: ${{ env.KSRC }}
+        run: |
+          make O=out
 
       - name: Install modules
-        working-directory: ${{ env.KERNEL_TOP }}
+        working-directory: ${{ env.KSRC }}
         run: |
-          mkdir -p out/modules_install
-          make -j${MAKE_JOBS} O=out modules_install INSTALL_MOD_PATH=out/modules_install
+          make O=out modules_install INSTALL_MOD_PATH=out/modules
 
-      - name: Package with AnyKernel3
+      - name: Package AnyKernel3 zip
         working-directory: workspace
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          git clone --depth=1 "${{ inputs.anykernel_repo }}" AnyKernel3
           cd AnyKernel3
-          cp "${KERNEL_TOP}/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
-          cp "${KERNEL_TOP}/out/arch/arm64/boot/dtbo.img" ./dtbo.img || true
-          rsync -a "${KERNEL_TOP}/out/modules_install/lib/modules/" ./modules/ || true
-          zip -r9 "../kernel-pdx234-sukisu-${{ inputs.android_version }}.zip" ./*
+          # Copy built kernel image (Image.gz-dtb preferred)
+          cp "${{ env.KSRC }}/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
+          # Optional dtbo
+          cp "${{ env.KSRC }}/out/arch/arm64/boot/dtbo.img" ./dtbo.img || true
+          # Modules
+          rsync -a "${{ env.KSRC }}/out/modules/lib/modules/" ./modules/ || true
+          # Write device codename
+          echo "${{ inputs.device_codename }}" > device_codename.txt
+          zip -r9 "../kernel-${{ inputs.device_codename }}-a15-$(date +%Y%m%d).zip" ./*
 
-      - name: Upload artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sony-kernel-${{ inputs.android_version }}
+          name: sony-pdx234-kernel-a15
           path: workspace/*.zip

@@ -1,4 +1,4 @@
-name: Build Xperia 1 V Kernel (LineageOS 22.2 / Android 15)
+name: Sony Xperia 1 V Kernel Build (LineageOS 22.2 / Android 15)
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ on:
         default: 'pdx234'
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
@@ -76,10 +76,10 @@ jobs:
         run: |
           mkdir -p toolchains && cd toolchains
           CLANG_TAG=clang-r530567
-          # Stream-download & extract the tag in one go
-          curl -sL \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/${CLANG_TAG}.tar.gz" \
-            | tar xz --strip-components=1
+          # exactly the same archive URL & extract as your gki-kernel.yml
+          curl -sSL \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/${CLANG_TAG}?format=tar.gz" \
+            | tar -xz --strip-components=1
           echo "${PWD}/bin" >> $GITHUB_PATH
 
       - name: Show clang version
@@ -103,47 +103,38 @@ jobs:
 
       - name: Apply susFS
         if: ${{ inputs.use_susfs == 'true' }}
-        run: |
-          bash scripts/apply_susfs.sh "${{ env.KSRC }}"
+        run: bash scripts/apply_susfs.sh "${{ env.KSRC }}"
 
       - name: Apply KPM
         if: ${{ inputs.use_kpm == 'true' }}
-        run: |
-          bash scripts/apply_kpm.sh "${{ env.KSRC }}"
+        run: bash scripts/apply_kpm.sh "${{ env.KSRC }}"
 
-      - name: Defconfig & olddefconfig
+      - name: Defconfig & merge new CONFIGs
         working-directory: ${{ env.KSRC }}
         run: |
           make O=out vendor/sony/pdx234_defconfig
-          # ensure new CONFIG_* flags are merged
           make -C . O=out olddefconfig
 
       - name: Compile kernel
         working-directory: ${{ env.KSRC }}
-        run: |
-          make O=out
+        run: make O=out
 
       - name: Install modules
         working-directory: ${{ env.KSRC }}
-        run: |
-          make O=out modules_install INSTALL_MOD_PATH=out/modules
+        run: make O=out modules_install INSTALL_MOD_PATH=out/modules
 
       - name: Package AnyKernel3 zip
         working-directory: workspace
         run: |
           git clone --depth=1 "${{ inputs.anykernel_repo }}" AnyKernel3
           cd AnyKernel3
-          # Copy built kernel image (Image.gz-dtb preferred)
           cp "${{ env.KSRC }}/out/arch/arm64/boot/Image.gz-dtb" ./Image.gz-dtb
-          # Optional dtbo
           cp "${{ env.KSRC }}/out/arch/arm64/boot/dtbo.img" ./dtbo.img || true
-          # Modules
           rsync -a "${{ env.KSRC }}/out/modules/lib/modules/" ./modules/ || true
-          # Write device codename
           echo "${{ inputs.device_codename }}" > device_codename.txt
           zip -r9 "../kernel-${{ inputs.device_codename }}-a15-$(date +%Y%m%d).zip" ./*
 
-      - name: Upload Artifact
+      - name: Upload kernel zip
         uses: actions/upload-artifact@v4
         with:
           name: sony-pdx234-kernel-a15

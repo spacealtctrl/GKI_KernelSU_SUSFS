@@ -36,22 +36,21 @@ jobs:
 
       - name: Download AOSP toolchains (Clang + GCC)
         run: |
-          mkdir -p toolchains && cd toolchains
-          # Clang 17 (Android 15 uses clang-r5239)
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r5239.tar.gz -O clang.tar.gz
-          mkdir clang && tar -xf clang.tar.gz -C clang
-          # GCC 4.9 (AOSP prebuilts)
-          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/master.tar.gz -O gcc64.tar.gz
-          mkdir gcc64 && tar -xf gcc64.tar.gz -C gcc64
-          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/heads/master.tar.gz -O gcc32.tar.gz
-          mkdir gcc32 && tar -xf gcc32.tar.gz -C gcc32
+          mkdir -p toolchains
+          cd toolchains
+          # Clone Clang (Android 15 = clang-r5239)
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
+          # Clone GCC 64-bit
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
+          # Clone GCC 32-bit
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
       - name: Set up environment
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchains/clang/bin" >> $GITHUB_ENV
-          echo "PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$PATH" >> $GITHUB_ENV
+          echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchains/clang/clang-r5239/bin" >> $GITHUB_ENV
+          echo "PATH=$GITHUB_WORKSPACE/toolchains/clang/clang-r5239/bin:$PATH" >> $GITHUB_ENV
           echo "CROSS_COMPILE=$GITHUB_WORKSPACE/toolchains/gcc64/bin/aarch64-linux-android-" >> $GITHUB_ENV
           echo "CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/toolchains/gcc32/bin/arm-linux-androideabi-" >> $GITHUB_ENV
           echo "CC=clang" >> $GITHUB_ENV

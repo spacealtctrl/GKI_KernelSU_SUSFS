@@ -112,16 +112,6 @@ jobs:
           REMOTE_BRANCH="$KERNEL_BRANCH"
           echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
 
-      - name: Optional: Apply platform-specific fixes (supp_op)
-        if: ${{ inputs.supp_op == true }}
-        run: |
-          echo 'Applying platform-specific support patches...'
-          cd "kernel/common/drivers/" || exit 0
-          curl -LSs "https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/dev/hmbird_patch.c" -o hmbird_patch.c || true
-          if [ -f hmbird_patch.c ]; then
-            echo "obj-y += hmbird_patch.o" >> Makefile
-          fi
-
       - name: Apply KernelSU
         run: |
           cd kernel

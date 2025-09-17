@@ -359,27 +359,11 @@ jobs:
           # Regenerate config
           make ARCH=arm64 gki_defconfig
 
-      - name: Apply Stack Size Patch
-        run: |
-          cd kernel
-          cat > increase_stack_size.patch << 'EOF'
-          diff --git a/fs/fuse/Makefile b/fs/fuse/Makefile
-          index xxxxxxx..yyyyyyy 100644
-          --- a/fs/fuse/Makefile
-          +++ b/fs/fuse/Makefile
-          @@ -X,6 +X,7 @@
-           # Add this line to increase stack frame size limit for fuse module
-           KBUILD_CFLAGS += -Wframe-larger-than=8000
-           obj-$(CONFIG_FUSE_FS) += fuse.o
-          EOF
-          # Apply the patch
-          patch -p1 < increase_stack_size.patch || true
-
       - name: Build Kernel
         run: |
           cd kernel
           
-          # Setup build environment
+          # Setup build environment with increased stack frame size
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$CLANG_PATH:$PATH
@@ -394,12 +378,20 @@ jobs:
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
           
+          # Add global stack frame size limit increase
+          export KCFLAGS="-Wframe-larger-than=8000"
+          export KCPPFLAGS="-Wframe-larger-than=8000"
+          
+          echo "Building kernel with increased stack frame size limit (8000 bytes)..."
+          
           # Build kernel
           make -j$(nproc) \
             ARCH=arm64 \
             CC="ccache clang" \
             LLVM=1 \
             LLVM_IAS=1 \
+            KCFLAGS="-Wframe-larger-than=8000" \
+            KCPPFLAGS="-Wframe-larger-than=8000" \
             Image Image.gz dtbs
           
           # Show ccache stats
@@ -425,14 +417,19 @@ jobs:
         run: |
           cd kernel
           
-          # Build modules
+          # Build modules with increased stack frame size
           export ARCH=arm64
           export PATH=$CLANG_PATH:$PATH
           export CC="ccache clang"
           export LLVM=1
           export LLVM_IAS=1
+          export KCFLAGS="-Wframe-larger-than=8000"
+          export KCPPFLAGS="-Wframe-larger-than=8000"
           
-          make -j$(nproc) modules
+          make -j$(nproc) \
+            KCFLAGS="-Wframe-larger-than=8000" \
+            KCPPFLAGS="-Wframe-larger-than=8000" \
+            modules
           
           # Install modules to temporary directory
           make INSTALL_MOD_PATH=../modules_out modules_install
@@ -610,6 +607,7 @@ jobs:
             - SUSFS for enhanced root hiding
             - ZRAM optimizations with LZ4KD compression
             - Built from LineageOS 22.2 sources
+            - Increased stack frame size limit for compatibility
             
             ### Device Compatibility
             - Sony Xperia devices with SM8550 chipset

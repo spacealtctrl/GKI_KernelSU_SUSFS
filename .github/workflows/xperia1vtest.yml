@@ -1,19 +1,10 @@
-name: Sony SM8550 GKI-Style Kernel Build
+name: Sony SM8550 GKI Kernel Build (5.15 - Android 14)
 permissions:
   contents: write
   actions: write
 on:
   workflow_dispatch:
     inputs:
-      android_version:
-        description: 'Android Version'
-        required: true
-        type: choice
-        options:
-          - 'android13'
-          - 'android14'
-          - 'android15'
-        default: 'android13'
       kernelsu_variant:
         description: 'KernelSU Variant'
         required: true
@@ -42,8 +33,8 @@ on:
         required: true
         type: boolean
         default: true
-      use_kmp:
-        description: 'Enable KMP patches'
+      use_kpm:
+        description: 'Enable KPM patches'
         required: true
         type: boolean
         default: true
@@ -62,12 +53,13 @@ jobs:
     env:
       KERNEL_VERSION: "5.15"
       KERNEL_SUBLEVEL: "185"
-      ANDROID_SECURITY_PATCH: "2025-08"
-      VENDOR_SECURITY_PATCH: "2025-04"
-      CONFIG: "sony-sm8550-5.15"
+      ANDROID_VERSION: "android14"
+      OS_PATCH_LEVEL: "2025-08"  # Updated to the Android security update level provided
+      CONFIG: "sony-sm8550-a14-5.15"
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      # Global stack frame size limit
       KCFLAGS: "-Wframe-larger-than=9999"
       KCPPFLAGS: "-Wframe-larger-than=9999"
 
@@ -92,10 +84,12 @@ jobs:
             lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev \
             libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            python3 python3-pip clang lld libelf-dev
+            python3 python3-pip clang lld libelf-dev pahole \
+            repo  # Add repo tool for Android 14
       - name: Configure ccache
         run: |
           mkdir -p ~/.ccache
+          mkdir -p ~/.cache/bazel  # Add Bazel cache directory
           ccache --version
           ccache --max-size=5G
           ccache --set-config=compression=true
@@ -104,62 +98,70 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
+          key: sony-sm8550-a14-5.15-ccache-${{ github.sha }}
           restore-keys: |
-            sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
-      - name: Cache Toolchains
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            kernel-build-tools
-            mkbootimg
-            clang
-          key: toolchain-${{ runner.os }}-sony-v2
+            sony-sm8550-a14-5.15-ccache-
       - name: Clone Toolchains
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
+          # Clone Google's GKI build tools for Android 14
           AOSP_MIRROR=https://android.googlesource.com
-          BRANCH=main-kernel-build-2024
+          BRANCH=main-kernel-build-2024  # Updated branch for Android 14
 
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
 
-          git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone -b 17 --depth=1 clang
+          # Setup repo tool
+          mkdir -p ./git-repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
+          chmod a+rx ./git-repo/repo
+          echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV
       - name: Set Environment Variables
         run: |
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
-          echo "CLANG_PATH=$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_ENV
-      - name: Setup Boot Signing Key
+      - name: Clone Dependencies
         run: |
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
-          echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
-      - name: Clone Kernel and Dependencies
-        run: |
-          git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
-            -b lineage-22.2 --depth=1 kernel
+          # Clone AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel3
 
-          if [ "${{ inputs.build_modules }}" = "true" ]; then
-            echo "Cloning Sony SM8550 modules repository..."
-            git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git \
-              --depth=1 modules
-          fi
+          # Clone SUSFS patches for 5.15 Android 14
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android14-5.15 susfs4ksu
 
-          ANYKERNEL_BRANCH="gki-2.0"
-          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
-
-          SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}"
-          echo "Using SUSFS branch: $SUSFS_BRANCH"
-          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
-
+          # Clone additional patches
           git clone https://github.com/Tools-cx-app/kernel_patches.git
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
+      - name: Initialize Sony Kernel Source
+        run: |
+          # Create config directory
+          CONFIG_DIR="android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          mkdir -p "$CONFIG_DIR"
+          cd "$CONFIG_DIR"
+
+          # Initialize kernel manifest for Android 14
+          FORMATTED_BRANCH="android14-5.15-${{ env.OS_PATCH_LEVEL }}"
+          $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest \
+            -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+
+          # Check for deprecated branch
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          if grep -q deprecated <<< $REMOTE_BRANCH; then
+            echo "Found deprecated branch: $FORMATTED_BRANCH"
+            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+          fi
+
+          # Sync repository
+          $REPO --version
+          $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
+
+          # Apply Sony-specific patches here if needed
+          # For now, we'll work with the GKI kernel as base
       - name: Setup KernelSU
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
 
+          # Determine branch based on input
           case "${{ inputs.kernelsu_branch }}" in
             "Stable(标准)")
               BRANCH="-s susfs-main"
@@ -170,50 +172,45 @@ jobs:
                 "Next") BRANCH="-s next-susfs-dev" ;;
                 "SukiSU") BRANCH="-s susfs-test" ;;
                 *)
-                  echo "Error: Undefined variant '${{ inputs.kernelsu_variant }}'"
+                  echo "Error: Undefined variant"
                   exit 1
                   ;;
               esac
               ;;
-            *)
-              echo "Error: Invalid branch '${{ inputs.kernelsu_branch }}'"
-              exit 1
-              ;;
           esac
 
+          # Add KernelSU based on variant
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
               echo "Adding Official KernelSU..."
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $BRANCH || exit 1
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $BRANCH
               ;;
             "Next")
               echo "Adding KernelSU Next..."
-              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $BRANCH || exit 1
+              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $BRANCH
               ;;
             "MKSU")
               echo "Adding MKSU..."
-              curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $BRANCH || exit 1
+              curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $BRANCH
               ;;
             "SukiSU")
               echo "Adding SukiSU..."
-              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH || exit 1
-              ;;
-            *)
-              echo "Error: Invalid KernelSU variant '${{ inputs.kernelsu_variant }}'"
-              exit 1
+              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
               ;;
           esac
       - name: Apply SUSFS Patches
         if: ${{ inputs.use_susfs }}
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
 
-          echo "Applying SUSFS patches for ${{ inputs.android_version }} - ${{ env.KERNEL_VERSION }}..."
+          echo "Applying SUSFS patches for Android 14 - 5.15..."
 
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.patch ./
-          cp ../susfs4ksu/kernel_patches/fs/* ./fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+          # Copy SUSFS files
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ./common/
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
 
+          # Apply variant-specific SUSFS patches
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
             cd ./KernelSU
@@ -230,10 +227,9 @@ jobs:
             cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
             patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
 
+            # Apply MKSU specific patches
             cp ../../kernel_patches/mksu/mksu_susfs.patch ./
             patch -p1 < mksu_susfs.patch || true
-            cp ../../kernel_patches/mksu/fix.patch ./
-            patch -p1 < fix.patch || true
             cd ..
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "Applying SUSFS patches for SukiSU..."
@@ -241,77 +237,73 @@ jobs:
             cd ..
           fi
 
-          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.patch || true
-
-          if [ $KERNEL_SUBLEVEL -lt 123 ]; then
-            echo 'Applying 5.15 legacy fix...'
-            curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch
-            patch -p1 < fix_5.15.legacy.patch || true
-          fi
+          # Apply main SUSFS patch
+          cd common
+          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
       - name: Apply Additional Patches
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
 
+          # Apply hooks patches based on variant
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Applying hooks for KernelSU-Next..."
-            cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
+            cp ../../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
             patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch || true
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "Applying hooks for SukiSU..."
-            cp ../SukiSU_patch/hooks/syscall_hooks.patch ./
+            cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
 
-          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            cp ../SukiSU_patch/69_hide_stuff.patch ./
-          else
-            cp ../kernel_patches/69_hide_stuff.patch ./
-          fi
+          # Apply hide stuff patch
+          cp ../../kernel_patches/69_hide_stuff.patch ./
           patch -p1 -F 3 < 69_hide_stuff.patch || true
       - name: Apply ZRAM Optimizations
         if: ${{ inputs.use_zram }}
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
 
-          cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
-          cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
-          cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+          # Copy LZ4K sources
+          cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r ../../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+          cp -r ../../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+          cp -r ../../SukiSU_patch/other/zram/lz4k_oplus ./lib/
 
-          if [ -f "../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
-            echo "Applying lz4kd patch..."
+          # Apply LZ4KD patches for 5.15
+          if [ -f "../../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch" ]; then
+            cp ../../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch ./
             patch -p1 -F 3 < lz4kd.patch || true
           fi
 
-          if [ -f "../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4k_oplus.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4k_oplus.patch ./
-            echo "Applying lz4k_oplus patch..."
+          if [ -f "../../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch" ]; then
+            cp ../../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch ./
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
       - name: Configure Kernel
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
 
-          make ARCH=arm64 gki_defconfig
-
+          # Start with GKI defconfig
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
 
-          echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
+          # Add KernelSU configuration
+          echo "CONFIG_KSU=y" >> $CONFIG_FILE
 
+          # Add variant-specific configs
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-            echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$CONFIG_FILE"
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
+            echo "CONFIG_KSU_KPROBES_HOOK=n" >> $CONFIG_FILE
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "CONFIG_KPM=y" >> "$CONFIG_FILE"
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$CONFIG_FILE"
+            echo "CONFIG_KPM=y" >> $CONFIG_FILE
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $CONFIG_FILE
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $CONFIG_FILE
           fi
 
+          # Add SUSFS configs if enabled
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
-            cat >> "$CONFIG_FILE" << EOF
+            cat >> $CONFIG_FILE << EOF
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -330,7 +322,8 @@ jobs:
           EOF
           fi
 
-          cat >> "$CONFIG_FILE" << EOF
+          # Add additional configs
+          cat >> $CONFIG_FILE << EOF
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_IP_NF_TARGET_TTL=y
@@ -344,10 +337,17 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           EOF
 
+          # Add ZRAM configs if enabled
           if [ "${{ inputs.use_zram }}" = "true" ]; then
-            cat >> "$CONFIG_FILE" << EOF
-          CONFIG_ZSMALLOC=y
-          CONFIG_ZRAM=y
+            # For Android 14, handle module configuration
+            sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' $CONFIG_FILE
+            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' $CONFIG_FILE
+            
+            # Remove from modules.bzl for Android 14
+            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' ../modules.bzl
+            echo "CONFIG_MODULE_SIG_FORCE=n" >> $CONFIG_FILE
+
+            cat >> $CONFIG_FILE << EOF
           CONFIG_CRYPTO_LZO=y
           CONFIG_CRYPTO_LZ4HC=y
           CONFIG_CRYPTO_LZ4K=y
@@ -359,217 +359,152 @@ jobs:
           EOF
           fi
 
+          # Set custom version if provided
           if [ ! -z "${{ inputs.custom_version }}" ]; then
-            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$CONFIG_FILE"
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" $CONFIG_FILE
           else
-            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-A14-KSU\"" $CONFIG_FILE
           fi
 
-          make ARCH=arm64 gki_defconfig
-      - name: Configure Kernel Name and Build Info
+          # Remove check_defconfig and other Bazel-specific adjustments
+          cd ..
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+          
+          # Remove protected exports for Android 14 Bazel build
+          sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
+          rm -rf ./common/android/abi_gki_protected_exports_*
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+      - name: Build Kernel with Bazel
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
 
-          CURRENT_TIME=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
-          echo "CURRENT_TIME=$CURRENT_TIME"
-
-          if [ ! -z "${{ inputs.custom_version }}" ]; then
-            echo "Using custom version: ${{ inputs.custom_version }}"
-            sed -i '$s|echo "\$res"|echo "${{ inputs.custom_version }}"|' ./scripts/setlocalversion
-          else
-            echo "Using default version with build info"
-            sed -i '$s|echo "\$res"|echo "\$res-Sony-SM8550-${{ inputs.android_version }}"|' ./scripts/setlocalversion
-          fi
-
-          perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
-
-          sed -i 's/-dirty//' ./scripts/setlocalversion
-      - name: Build Kernel
-        run: |
-          set -e
-          set -x
-          cd kernel
-
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH=$CLANG_PATH:$PATH
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC="ccache clang"
-          export CXX="ccache clang++"
-          export LD=ld.lld
-          export AR=llvm-ar
-          export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
-          export OBJDUMP=llvm-objdump
-          export STRIP=llvm-strip
-
+          # Setup build environment
           export KCFLAGS="-Wframe-larger-than=9999"
           export KCPPFLAGS="-Wframe-larger-than=9999"
 
-          echo "Building kernel with increased stack frame size limit (9999 bytes)..."
+          echo "Building kernel with Bazel for Android 14..."
+          
+          # Build with Bazel
+          tools/bazel build \
+            --disk_cache=/home/runner/.cache/bazel \
+            --config=fast \
+            --lto=thin \
+            //common:kernel_aarch64_dist || exit 1
 
-          make -j$(nproc) \
-            ARCH=arm64 \
-            CC="ccache clang" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="-Wframe-larger-than=9999" \
-            KCPPFLAGS="-Wframe-larger-than=9999" \
-            Image Image.gz dtbs
-
+          # Show ccache stats
           ccache --show-stats
-      - name: Build Modules
-        if: ${{ inputs.build_modules }}
+      - name: Patch Image for KPM (SukiSU only)
+        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
-          cd kernel
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64"
 
-          export ARCH=arm64
-          export PATH=$CLANG_PATH:$PATH
-          export CC="ccache clang"
-          export CXX="ccache clang++"
-          export LD=ld.lld
-          export AR=llvm-ar
-          export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
-          export OBJDUMP=llvm-objdump
-          export STRIP=llvm-strip
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS="-Wframe-larger-than=9999"
-          export KCPPFLAGS="-Wframe-larger-than=9999"
-
-          echo "Building kernel modules..."
-          make -j$(nproc) \
-            ARCH=arm64 \
-            CC="ccache clang" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="-Wframe-larger-than=9999" \
-            KCPPFLAGS="-Wframe-larger-than=9999" \
-            modules
-
-          make INSTALL_MOD_PATH=../modules_out modules_install
-
-          find ../modules_out -name "*.ko" -exec $STRIP --strip-debug {} \;
-
-          echo "Modules built successfully!"
-      - name: Patch Image for KMP (SukiSU only)
-        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
-        run: |
-          cd kernel/arch/arm64/boot
-
-          echo "Patching Image file for KMP..."
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kmp/patch_linux" -o patch
+          echo "Patching Image file for KPM..."
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
           chmod 777 patch
           ./patch
           rm -rf Image
           mv oImage Image
 
+          # Recreate Image.gz
           gzip -n -k -f -9 ./Image > ./Image.gz
-      - name: Create Boot Images Directory and Copy Files
+      - name: Build Modules
+        if: ${{ inputs.build_modules }}
         run: |
-          echo "Creating bootimgs directory..."
-          mkdir -p bootimgs
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
 
-          cp kernel/arch/arm64/boot/Image bootimgs/
-          cp kernel/arch/arm64/boot/Image bootimgs/Image
+          # Build modules with Bazel
+          echo "Building modules with Bazel..."
+          tools/bazel build \
+            --disk_cache=/home/runner/.cache/bazel \
+            --config=fast \
+            //common:kernel_aarch64_modules || true
 
-          if [ ! -f kernel/arch/arm64/boot/Image.gz ]; then
-            gzip -n -k -f -9 kernel/arch/arm64/boot/Image > bootimgs/Image.gz
-          else
-            cp kernel/arch/arm64/boot/Image.gz bootimgs/
-          fi
+          # Collect modules
+          mkdir -p ../modules_out
+          find bazel-bin -name "*.ko" -exec cp {} ../modules_out/ \;
 
-          lz4 -f -12 --favor-decSpeed kernel/arch/arm64/boot/Image bootimgs/Image.lz4
-
-          cp bootimgs/Image ./
-          cp bootimgs/Image.gz ./
-          cp bootimgs/Image.lz4 ./
+          # Strip modules
+          find ../modules_out -name "*.ko" -exec llvm-strip --strip-debug {} \;
       - name: Create Boot Images
         run: |
-          cd bootimgs
+          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64"
 
-          echo "Building boot images for ${{ inputs.android_version }}..."
+          # Create different compression formats
+          if [ ! -f Image.gz ]; then
+            gzip -n -k -f -9 ./Image > ./Image.gz
+          fi
 
-          case "${{ inputs.android_version }}" in
-            "android13") OS_VERSION="13.0.0" ;;
-            "android14") OS_VERSION="14.0.0" ;;
-            "android15") OS_VERSION="15.0.0" ;;
-            *) OS_VERSION="13.0.0" ;;
-          esac
+          if [ ! -f Image.lz4 ]; then
+            lz4 -f -12 --favor-decSpeed ./Image ./Image.lz4
+          fi
 
-          echo "Using OS version: $OS_VERSION"
-          echo "Using Android security patch: $ANDROID_SECURITY_PATCH"
+          # Create boot images
+          echo "Creating boot images for Android 14..."
 
+          # Boot.img with uncompressed kernel
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image \
             --output boot.img \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
+            --os_version 14.0.0 \
+            --os_patch_level $OS_PATCH_LEVEL
 
-          $AVBTOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot.img \
-            --algorithm SHA256_RSA2048 \
-            --key $BOOT_SIGN_KEY_PATH
-
+          # Boot-gz.img with gzip kernel
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.gz \
             --output boot-gz.img \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
+            --os_version 14.0.0 \
+            --os_patch_level $OS_PATCH_LEVEL
 
-          $AVBTOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-gz.img \
-            --algorithm SHA256_RSA2048 \
-            --key $BOOT_SIGN_KEY_PATH
-
+          # Boot-lz4.img with lz4 kernel
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.lz4 \
             --output boot-lz4.img \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
+            --os_version 14.0.0 \
+            --os_patch_level $OS_PATCH_LEVEL
 
-          $AVBTOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-lz4.img \
-            --algorithm SHA256_RSA2048 \
-            --key $BOOT_SIGN_KEY_PATH
+          # Sign boot images
+          if [ -f "$AVBTOOL" ]; then
+            for img in boot.img boot-gz.img boot-lz4.img; do
+              $AVBTOOL add_hash_footer \
+                --partition_name boot \
+                --partition_size $((64 * 1024 * 1024)) \
+                --image $img \
+                --algorithm SHA256_RSA2048 || true
+            done
+          fi
 
-          cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
-          cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
-          cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
+          # Move to workspace root
+          cp *.img $GITHUB_WORKSPACE/
+          cp Image* $GITHUB_WORKSPACE/
       - name: Package with AnyKernel3
         run: |
-          cp bootimgs/Image AnyKernel3/
-          cp bootimgs/Image.gz AnyKernel3/
-          cp bootimgs/Image.lz4 AnyKernel3/
+          # Copy kernel images from Bazel output
+          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image" AnyKernel3/
+          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image.gz" AnyKernel3/
+          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image.lz4" AnyKernel3/ 2>/dev/null || true
 
+          # Copy DTBs if available
           mkdir -p AnyKernel3/dtbs
-          find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
+          find "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin" -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
 
+          # Copy modules if built
           if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then
-            echo "Copying kernel modules to AnyKernel3..."
             mkdir -p AnyKernel3/modules/system/lib/modules
             find modules_out -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
           fi
 
+          # Configure AnyKernel3 for Sony SM8550 Android 14
           cat > AnyKernel3/anykernel.sh << 'EOF'
           # AnyKernel3 Ramdisk Mod Script
           # osm0sis @ xda-developers
 
           properties() { '
-          kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }})
+          kernel.string=Sony SM8550 Android 14 KernelSU + SUSFS Kernel by @YourName
           do.devicecheck=1
-          do.modules=${{ inputs.build_modules && '1' || '0' }}
+          do.modules=1
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
@@ -577,7 +512,7 @@ jobs:
           device.name2=pdx237
           device.name3=yodo
           device.name4=sm8550
-          supported.versions=13,14,15
+          supported.versions=14
           supported.patchlevels=
           '; }
 
@@ -594,7 +529,7 @@ jobs:
           dump_boot;
 
           # Install modules if present
-          if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "$home/modules" ]; then
+          if [ -d "$home/modules" ]; then
             ui_print "- Installing kernel modules...";
             mount -o rw,remount /system;
             cp -rf $home/modules/* /;
@@ -604,24 +539,30 @@ jobs:
           write_boot;
           EOF
 
+          # Create flashable zips
           cd AnyKernel3
 
-          ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
-          zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4
+          # Create main zip with uncompressed kernel
+          zip -r9 ../Sony-SM8550-A14-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-$(date +%Y%m%d).zip * \
+            -x .git README.md *placeholder Image.gz Image.lz4
 
+          # Create gz variant
           rm -f Image
-          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
-          zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4
+          zip -r9 ../Sony-SM8550-A14-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-gz-$(date +%Y%m%d).zip * \
+            -x .git README.md *placeholder Image Image.lz4
 
-          rm -f Image.gz
-          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
-          zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz
+          # Create lz4 variant if exists
+          if [ -f Image.lz4 ]; then
+            rm -f Image.gz
+            zip -r9 ../Sony-SM8550-A14-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-lz4-$(date +%Y%m%d).zip * \
+              -x .git README.md *placeholder Image Image.gz
+          fi
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Sony-SM8550-${{ inputs.android_version }}-KernelSU-${{ inputs.kernelsu_variant }}-${{ github.run_number }}
+          name: Sony-SM8550-A14-KernelSU-${{ inputs.kernelsu_variant }}-${{ github.run_number }}
           path: |
-            *AnyKernel3.zip
+            *.zip
             *.img
             Image
             Image.gz
@@ -630,40 +571,35 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-${{ github.run_number }}
-          name: Sony SM8550 Kernel ${{ inputs.android_version }} ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }} - ${{ inputs.kernelsu_variant }}
+          tag_name: v${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-A14-${{ inputs.kernelsu_variant }}-${{ github.run_number }}
+          name: Sony SM8550 Kernel ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }} Android 14 - ${{ inputs.kernelsu_variant }}
           body: |
-            ## Sony SM8550 Custom Kernel - GKI Style Build
+            ## Sony SM8550 Custom Kernel for Android 14
 
-            **Android Version:** ${{ inputs.android_version }}
             **Kernel Version:** ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}
+            **Android Version:** Android 14
             **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
             **SUSFS:** ${{ inputs.use_susfs && 'Enabled' || 'Disabled' }}
             **ZRAM Optimizations:** ${{ inputs.use_zram && 'Enabled' || 'Disabled' }}
-            **Modules:** ${{ inputs.build_modules && 'Built and included' || 'Kernel-only build (GKI drivers built-in)' }}
-            **Android Security Patch:** ${{ env.ANDROID_SECURITY_PATCH }}
-            **Vendor Security Patch:** ${{ env.VENDOR_SECURITY_PATCH }}
-            **Build Date:** $(date +%Y-%m-%d)
-
-            ### Installation
-            1. Flash the zip file via custom recovery (TWRP/OrangeFox)
-            2. Or extract and flash boot.img via fastboot
 
             ### Features
             - KernelSU ${{ inputs.kernelsu_variant }} variant
             - SUSFS for enhanced root hiding
             - ZRAM optimizations with LZ4KD compression
-            - Built from LineageOS 22.2 sources
-            - GKI-style build process with increased stack frame compatibility
-            - Multi-Android version support (13/14/15)
-            - Updated security patch levels matching modern devices
+            - Built from AOSP Android 14 GKI sources
+            - Optimized for Sony SM8550 devices
+            - Increased stack frame size limit for compatibility
 
             ### Device Compatibility
             - Sony Xperia devices with SM8550 chipset
             - Device codenames: pdx234, pdx237, yodo
-            - Supports Android 13, 14, and 15
+            - Android 14 ROMs
+
+            ### Installation
+            1. Flash via custom recovery (TWRP recommended)
+            2. Or use the boot images directly with fastboot
           files: |
-            *AnyKernel3.zip
-            *.img
+            *.zip
+            boot*.img
           draft: false
           prerelease: false

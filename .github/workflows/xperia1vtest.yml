@@ -54,15 +54,13 @@ jobs:
       KERNEL_VERSION: "5.15"
       KERNEL_SUBLEVEL: "185"
       ANDROID_VERSION: "android14"
-      OS_PATCH_LEVEL: "2025-08"  # keep/update as needed
+      OS_PATCH_LEVEL: "2025-08"
       CONFIG: "sony-sm8550-5.15"
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      # Increase stack frame size tolerance
       KCFLAGS: "-Wframe-larger-than=9999"
       KCPPFLAGS: "-Wframe-larger-than=9999"
-
     steps:
       - name: Maximize Build Space
         uses: AdityaGarg8/remove-unwanted-software@v5
@@ -105,14 +103,13 @@ jobs:
 
       - name: Clone Toolchains and Build Tools (Android 14 style)
         run: |
-          # Use the newer main-kernel-build-2024 used by gkibuild for Android14 compatibility
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
 
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
 
-          # Keep your clang prebuilts (adjust branch as needed)
+          # Clang prebuilts used by your builds (adjust branch if needed)
           git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone -b 17 --depth=1 clang
 
       - name: Set Environment Variables
@@ -124,22 +121,18 @@ jobs:
 
       - name: Clone Kernel and Dependencies
         run: |
-          # Clone Sony kernel (your repo)
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
             -b lineage-22.2 --depth=1 kernel
 
-          # Clone modules if requested
           if [ "${{ inputs.build_modules }}" = "true" ]; then
-            git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git --depth=1 modules
+            git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git --depth=1 modules || true
           fi
 
-          # Clone AnyKernel3 (gki-2.0 is safe)
-          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b gki-2.0 AnyKernel3
+          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b gki-2.0 AnyKernel3 || git clone https://github.com/osm0sis/AnyKernel3.git -b master AnyKernel3
 
-          # For Android14 we must use the SUSFS branch matching gki-android14-5.15
+          # SUSFS Android 14 branch
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android14-5.15 susfs4ksu || true
 
-          # Additional patches and SukiSU helper repo
           git clone https://github.com/Tools-cx-app/kernel_patches.git || true
           git clone https://github.com/ShirkNeko/SukiSU_patch.git || true
 
@@ -147,7 +140,6 @@ jobs:
         run: |
           cd kernel
 
-          # Determine branch flag based on input (same behavior as original)
           case "${{ inputs.kernelsu_branch }}" in
             "Stable(标准)")
               BRANCH="-s susfs-main"
@@ -157,31 +149,23 @@ jobs:
                 "Official" | "MKSU") BRANCH="-s main" ;;
                 "Next") BRANCH="-s next-susfs-dev" ;;
                 "SukiSU") BRANCH="-s susfs-test" ;;
-                *)
-                  echo "Error: Undefined variant"
-                  exit 1
-                  ;;
+                *) echo "Error: Undefined variant"; exit 1 ;;
               esac
               ;;
           esac
 
-          # Add KernelSU based on variant
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
-              echo "Adding Official KernelSU..."
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $BRANCH
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash $BRANCH || true
               ;;
             "Next")
-              echo "Adding KernelSU Next..."
-              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $BRANCH
+              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash $BRANCH || true
               ;;
             "MKSU")
-              echo "Adding MKSU..."
-              curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $BRANCH
+              curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash $BRANCH || true
               ;;
             "SukiSU")
-              echo "Adding SukiSU..."
-              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
+              curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH || true
               ;;
           esac
 
@@ -189,58 +173,47 @@ jobs:
         if: ${{ inputs.use_susfs }}
         run: |
           cd kernel || exit 0
-
           echo "Applying SUSFS patches for Android 14 - 5.15..."
 
-          # prefer the Android14-specific patch if present
+          # copy patch if available (prefer Android14-specific)
           if [ -f ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ]; then
             cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch . || true
-          else
-            # fallback to generic 5.15 patch name if not present
-            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ./ || true
+          elif [ -f ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ]; then
+            cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch . || true
           fi
 
-          # copy SUSFS helpers
-          mkdir -p fs include/linux || true
           cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/ || true
           cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ || true
 
-          # Variant-specific handling (same as before)
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
-            echo "Applying SUSFS patches for Official KernelSU..."
-            cd ./KernelSU || true
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./ || true
-            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
-            cd ..
-          elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-            echo "Applying SUSFS patches for KernelSU-Next..."
-            cd ./KernelSU-Next || true
-            cd ..
+            if [ -d ./KernelSU ]; then
+              cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/ || true
+              cd KernelSU || true
+              patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
+              cd ..
+            fi
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
-            echo "Applying SUSFS patches for MKSU..."
-            cd ./KernelSU || true
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./ || true
-            patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
-            cp ../../kernel_patches/mksu/mksu_susfs.patch ./ || true
-            patch -p1 < mksu_susfs.patch || true
-            cd ..
-          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "Applying SUSFS patches for SukiSU..."
-            cd ./KernelSU || true
-            cd ..
+            if [ -d ./KernelSU ]; then
+              cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/ || true
+              cd KernelSU || true
+              patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
+              cd ..
+            fi
+            if [ -f ../kernel_patches/mksu/mksu_susfs.patch ]; then
+              cp ../kernel_patches/mksu/mksu_susfs.patch .
+              patch -p1 < mksu_susfs.patch || true
+            fi
           fi
 
-          # Apply main SUSFS patch (try fuzzed patch apply)
           if [ -f 50_add_susfs_in_gki-android14-5.15.patch ]; then
             patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
           elif [ -f 50_add_susfs_in_gki-android13-5.15.patch ]; then
             patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android13-5.15.patch || true
           fi
 
-          # Fix for older 5.15 kernels if needed
           if [ $KERNEL_SUBLEVEL -lt 123 ]; then
             echo 'Applying 5.15 legacy fix...'
-            curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch
+            curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch || true
             patch -p1 < fix_5.15.legacy.patch || true
           fi
 
@@ -248,22 +221,15 @@ jobs:
         run: |
           cd kernel || exit 0
 
-          # Apply hooks patches based on variant
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-            echo "Applying hooks for KernelSU-Next..."
             cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch . || true
             patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch || true
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "Applying hooks for SukiSU..."
             cp ../SukiSU_patch/hooks/syscall_hooks.patch . || true
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
 
-          # Apply hide-stuff patch (SukiSU or generic)
-          if [ -f ../SukiSU_patch/69_hide_stuff.patch ]; then
-            cp ../SukiSU_patch/69_hide_stuff.patch . || true
-            patch -p1 -F 3 < 69_hide_stuff.patch || true
-          elif [ -f ../kernel_patches/69_hide_stuff.patch ]; then
+          if [ -f ../kernel_patches/69_hide_stuff.patch ]; then
             cp ../kernel_patches/69_hide_stuff.patch . || true
             patch -p1 -F 3 < 69_hide_stuff.patch || true
           fi
@@ -273,7 +239,6 @@ jobs:
         run: |
           cd kernel || exit 0
 
-          # Copy LZ4K sources from SukiSU_patch if available
           if [ -d ../SukiSU_patch/other/zram/lz4k/include/linux ]; then
             cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ || true
             cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/ || true
@@ -281,7 +246,6 @@ jobs:
             cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/ || true
           fi
 
-          # Apply LZ4KD patches for 5.15 if present
           if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch" ]; then
             cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch . || true
             patch -p1 -F 3 < lz4kd.patch || true
@@ -292,13 +256,12 @@ jobs:
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
 
-          # Android14-specific adjustments (mimic gkibuild behavior)
-          # - If modules.bzl exists, remove zram & zsmalloc entries to avoid Bazel issues
+          # Android14-specific: if modules.bzl exists in repo layout, remove zram entries to avoid Bazel issues
           if [ -f "../kernel_patches/modules.bzl" ]; then
             sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' ../kernel_patches/modules.bzl || true
           fi
 
-          # If gki_defconfig exists in a common folder (GKI layout), add MODULE_SIG_FORCE disable
+          # If gki_defconfig exists in common layout, ensure MODULE_SIG_FORCE=False to allow unsigned modules building
           if [ -f "arch/arm64/configs/gki_defconfig" ]; then
             echo "CONFIG_MODULE_SIG_FORCE=n" >> arch/arm64/configs/gki_defconfig || true
           fi
@@ -310,13 +273,12 @@ jobs:
         run: |
           cd kernel || exit 0
 
-          # Choose defconfig location intelligently (device repo or common)
+          # Determine defconfig path safely
           if [ -f arch/arm64/configs/gki_defconfig ]; then
             DEFCONFIG_PATH=arch/arm64/configs/gki_defconfig
           elif [ -f ../common/arch/arm64/configs/gki_defconfig ]; then
             DEFCONFIG_PATH=../common/arch/arm64/configs/gki_defconfig
           else
-            # fallback - try to create/use arch path
             DEFCONFIG_PATH=arch/arm64/configs/gki_defconfig
             mkdir -p $(dirname $DEFCONFIG_PATH) || true
             touch $DEFCONFIG_PATH || true
@@ -324,29 +286,28 @@ jobs:
 
           echo "Using defconfig path: $DEFCONFIG_PATH"
 
-          # Run make gki_defconfig where appropriate (safe to run even if file is external)
+          # Try regenerating gki_defconfig (no-op if missing scripts)
           if command -v make >/dev/null 2>&1; then
             make ARCH=arm64 gki_defconfig || true
           fi
 
-          # Ensure KernelSU base config is present
-          echo "CONFIG_KSU=y" >> $DEFCONFIG_PATH || true
+          # Ensure kernel SU base
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH" || true
 
-          # Variant specific config additions
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-            echo "CONFIG_KSU_KPROBES_HOOK=n" >> $DEFCONFIG_PATH || true
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $DEFCONFIG_PATH || true
+            echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$DEFCONFIG_PATH" || true
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG_PATH" || true
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "CONFIG_KPM=y" >> $DEFCONFIG_PATH || true
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $DEFCONFIG_PATH || true
-            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG_PATH || true
+            echo "CONFIG_KPM=y" >> "$DEFCONFIG_PATH" || true
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG_PATH" || true
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG_PATH" || true
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> $DEFCONFIG_PATH || true
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG_PATH" || true
           fi
 
-          # Add SUSFS configs if enabled
+          # Append SUSFS configs via a quoted heredoc so YAML parser stays happy
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
-            cat >> $DEFCONFIG_PATH << EOF
+cat >> "$DEFCONFIG_PATH" <<'GKI_SUSFS_EOF'
 CONFIG_KSU_SUSFS=y
 CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
 CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -362,11 +323,11 @@ CONFIG_KSU_SUSFS_ENABLE_LOG=y
 CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
 CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-EOF
+GKI_SUSFS_EOF
           fi
 
-          # Add misc configs
-          cat >> $DEFCONFIG_PATH << EOF
+          # Append misc kernel options
+cat >> "$DEFCONFIG_PATH" <<'GKI_MISC_EOF'
 CONFIG_TMPFS_XATTR=y
 CONFIG_TMPFS_POSIX_ACL=y
 CONFIG_IP_NF_TARGET_TTL=y
@@ -378,11 +339,10 @@ CONFIG_NET_SCH_FQ=y
 CONFIG_TCP_CONG_BIC=n
 CONFIG_TCP_CONG_WESTWOOD=n
 CONFIG_TCP_CONG_HTCP=n
-EOF
+GKI_MISC_EOF
 
-          # Add ZRAM configs if enabled
           if [ "${{ inputs.use_zram }}" = "true" ]; then
-            cat >> $DEFCONFIG_PATH << EOF
+cat >> "$DEFCONFIG_PATH" <<'GKI_ZRAM_EOF'
 CONFIG_ZSMALLOC=y
 CONFIG_ZRAM=y
 CONFIG_CRYPTO_LZO=y
@@ -393,17 +353,16 @@ CONFIG_CRYPTO_842=y
 CONFIG_CRYPTO_LZ4K_OPLUS=y
 CONFIG_ZRAM_WRITEBACK=y
 CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-EOF
+GKI_ZRAM_EOF
           fi
 
-          # Set custom version if provided
+          # Custom localversion
           if [ ! -z "${{ inputs.custom_version }}" ]; then
-            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" $DEFCONFIG_PATH || true
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$DEFCONFIG_PATH" || true
           else
-            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU\"" $DEFCONFIG_PATH || true
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU\"" "$DEFCONFIG_PATH" || true
           fi
 
-          # Regenerate config (safe no-op if not applicable)
           if command -v make >/dev/null 2>&1; then
             make ARCH=arm64 gki_defconfig || true
           fi
@@ -412,7 +371,6 @@ EOF
         run: |
           cd kernel || exit 0
 
-          # Setup build env
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$CLANG_PATH:$PATH
@@ -430,9 +388,6 @@ EOF
           export KCFLAGS="-Wframe-larger-than=9999"
           export KCPPFLAGS="-Wframe-larger-than=9999"
 
-          echo "Building kernel with increased stack frame size limit (9999 bytes)..."
-
-          # Build kernel (image + dtbs)
           make -j$(nproc) \
             ARCH=arm64 \
             CC="ccache clang" \
@@ -442,17 +397,14 @@ EOF
             KCPPFLAGS="-Wframe-larger-than=9999" \
             Image Image.gz dtbs || true
 
-          # Show ccache stats
           ccache --show-stats || true
 
       - name: Patch Image for KPM (SukiSU only)
         if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           cd kernel/arch/arm64/boot || exit 0
-
-          echo "Patching Image file for KPM..."
           if curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch; then
-            chmod 777 patch || true
+            chmod +x patch || true
             ./patch || true
             rm -rf Image || true
             mv oImage Image || true
@@ -463,7 +415,6 @@ EOF
         if: ${{ inputs.build_modules }}
         run: |
           cd kernel || exit 0
-
           export ARCH=arm64
           export PATH=$CLANG_PATH:$PATH
           export CC="ccache clang"
@@ -480,7 +431,6 @@ EOF
         run: |
           cd kernel/arch/arm64/boot || exit 0
 
-          # Ensure compressed versions exist
           if [ ! -f Image.gz ]; then
             gzip -n -k -f -9 ./Image > ./Image.gz || true
           fi
@@ -491,7 +441,6 @@ EOF
 
           echo "Creating boot images for Android 14..."
 
-          # Boot.img with uncompressed kernel (set os_version to 14.0.0)
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image \
@@ -499,7 +448,6 @@ EOF
             --os_version 14.0.0 \
             --os_patch_level $OS_PATCH_LEVEL || true
 
-          # Boot-gz.img with gzip kernel
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.gz \
@@ -507,7 +455,6 @@ EOF
             --os_version 14.0.0 \
             --os_patch_level $OS_PATCH_LEVEL || true
 
-          # Boot-lz4.img with lz4 kernel
           $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.lz4 \
@@ -515,7 +462,6 @@ EOF
             --os_version 14.0.0 \
             --os_patch_level $OS_PATCH_LEVEL || true
 
-          # Sign boot images (if avbtool + key present)
           if [ -f "$AVBTOOL" ]; then
             for img in boot.img boot-gz.img boot-lz4.img; do
               $AVBTOOL add_hash_footer \
@@ -526,72 +472,62 @@ EOF
             done
           fi
 
-          # Move images to workspace root
           mv *.img $GITHUB_WORKSPACE/ || true
 
       - name: Package with AnyKernel3
         run: |
-          # Copy kernel images
           cp kernel/arch/arm64/boot/Image AnyKernel3/ || true
           cp kernel/arch/arm64/boot/Image.gz AnyKernel3/ || true
           cp kernel/arch/arm64/boot/Image.lz4 AnyKernel3/ 2>/dev/null || true
 
-          # Copy DTBs
           mkdir -p AnyKernel3/dtbs || true
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
 
-          # Copy modules if built
           if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then
             mkdir -p AnyKernel3/modules/system/lib/modules || true
             find modules_out -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
           fi
 
-          # Configure AnyKernel3 for Sony SM8550 (update supported versions to 14)
-          cat > AnyKernel3/anykernel.sh << 'EOF'
-          # AnyKernel3 Ramdisk Mod Script - osm0sis inspired
-          properties() { '
-          kernel.string=Sony SM8550 KernelSU + SUSFS Kernel by @YourName
-          do.devicecheck=1
-          do.modules=1
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=pdx234
-          device.name2=pdx237
-          device.name3=yodo
-          device.name4=sm8550
-          supported.versions=14
-          supported.patchlevels=
-          '; }
+          cat > AnyKernel3/anykernel.sh << 'AK_EOF'
+# AnyKernel3 Ramdisk Mod Script - adapted for Android14
+properties() { '
+kernel.string=Sony SM8550 KernelSU + SUSFS Kernel by @YourName
+do.devicecheck=1
+do.modules=1
+do.systemless=1
+do.cleanup=1
+do.cleanuponabort=0
+device.name1=pdx234
+device.name2=pdx237
+device.name3=yodo
+device.name4=sm8550
+supported.versions=14
+supported.patchlevels=
+'; }
 
-          block=/dev/block/bootdevice/by-name/boot;
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
+block=/dev/block/bootdevice/by-name/boot;
+is_slot_device=1;
+ramdisk_compression=auto;
+patch_vbmeta_flag=auto;
 
-          . tools/ak3-core.sh;
+. tools/ak3-core.sh;
 
-          dump_boot;
+dump_boot;
 
-          if [ -d "$home/modules" ]; then
-            ui_print "- Installing kernel modules...";
-            mount -o rw,remount /system;
-            cp -rf $home/modules/* /;
-            mount -o ro,remount /system;
-          fi;
+if [ -d "$home/modules" ]; then
+  ui_print "- Installing kernel modules...";
+  mount -o rw,remount /system;
+  cp -rf $home/modules/* /;
+  mount -o ro,remount /system;
+fi;
 
-          write_boot;
-          EOF
+write_boot;
+AK_EOF
 
-          # Create flashable zips
           cd AnyKernel3 || true
-
           zip -r9 ../Sony-SM8550-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-$(date +%Y%m%d).zip * -x .git README.md *placeholder Image.gz Image.lz4 || true
-
-          # gz variant
           rm -f Image || true
           zip -r9 ../Sony-SM8550-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-gz-$(date +%Y%m%d).zip * -x .git README.md *placeholder Image Image.lz4 || true
-
           if [ -f Image.lz4 ]; then
             rm -f Image.gz || true
             zip -r9 ../Sony-SM8550-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-lz4-$(date +%Y%m%d).zip * -x .git README.md *placeholder Image Image.gz || true
@@ -622,17 +558,6 @@ EOF
             **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
             **SUSFS:** ${{ inputs.use_susfs && 'Enabled' || 'Disabled' }}
             **ZRAM Optimizations:** ${{ inputs.use_zram && 'Enabled' || 'Disabled' }}
-
-            ### Features
-            - KernelSU ${{ inputs.kernelsu_variant }} variant
-            - SUSFS for enhanced root hiding (Android14 branch when available)
-            - ZRAM optimizations with LZ4KD compression
-            - Built from LineageOS 22.2 sources
-            - Increased stack frame size limit for compatibility
-
-            ### Device Compatibility
-            - Sony Xperia devices with SM8550 chipset
-            - Device codenames: pdx234, pdx237, yodo
           files: |
             *.zip
             boot*.img

@@ -230,7 +230,7 @@ jobs:
             cd ./KernelSU
             cd ..
           fi
-          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android15-66.patch || true
+          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
           if [ $KERNEL_SUBLEVEL -lt 123 ]; then
             echo 'Applying 5.15 legacy fix...'
             curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch

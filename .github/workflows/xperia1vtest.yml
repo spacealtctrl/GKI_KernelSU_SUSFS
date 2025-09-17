@@ -56,6 +56,7 @@ on:
         description: 'Custom version string (optional)'
         required: false
         type: string
+
 jobs:
   build-sony-kernel:
     runs-on: ubuntu-latest
@@ -82,7 +83,7 @@ jobs:
           remove-docker-images: 'true'
           remove-large-packages: 'true'
           remove-swapfile: 'true'
-          verbose: 'true'
+
       - name: Setup Build Environment
         run: |
           sudo apt update && sudo apt upgrade -y
@@ -93,6 +94,7 @@ jobs:
             libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev \
             python3 python3-pip clang lld libelf-dev dwarves
+
       - name: Configure ccache
         run: |
           mkdir -p ~/.ccache
@@ -100,6 +102,7 @@ jobs:
           ccache --max-size=5G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -107,6 +110,7 @@ jobs:
           key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
           restore-keys: |
             sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
+
       - name: Cache Toolchains
         id: cache-toolchain
         uses: actions/cache@v4
@@ -116,6 +120,7 @@ jobs:
             mkbootimg
             clang
           key: toolchain-${{ runner.os }}-sony-v2
+
       - name: Clone Toolchains
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
@@ -126,16 +131,19 @@ jobs:
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
 
           git clone https://gitlab.com/ThankYouMario/android_prebuilts_clang-standalone -b 17 --depth=1 clang
+
       - name: Set Environment Variables
         run: |
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           echo "CLANG_PATH=$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_ENV
+
       - name: Setup Boot Signing Key
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+
       - name: Clone Kernel and Dependencies
         run: |
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
@@ -155,7 +163,8 @@ jobs:
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
 
           git clone https://github.com/Tools-cx-app/kernel_patches.git
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git  # Cloning the SukiSU_patch repository
+
       - name: Setup KernelSU
         run: |
           cd kernel
@@ -203,6 +212,7 @@ jobs:
               exit 1
               ;;
           esac
+
       - name: Apply SUSFS Patches
         if: ${{ inputs.use_susfs }}
         run: |
@@ -248,6 +258,7 @@ jobs:
             curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch
             patch -p1 < fix_5.15.legacy.patch || true
           fi
+
       - name: Apply Additional Patches
         run: |
           cd kernel
@@ -268,6 +279,7 @@ jobs:
             cp ../kernel_patches/69_hide_stuff.patch ./
           fi
           patch -p1 -F 3 < 69_hide_stuff.patch || true
+
       - name: Apply ZRAM Optimizations
         if: ${{ inputs.use_zram }}
         run: |
@@ -289,6 +301,7 @@ jobs:
             echo "Applying lz4k_oplus patch..."
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
+
       - name: Configure Kernel
         run: |
           cd kernel
@@ -366,6 +379,7 @@ jobs:
           fi
 
           make ARCH=arm64 gki_defconfig
+
       - name: Configure Kernel Name and Build Info
         run: |
           cd kernel
@@ -384,6 +398,7 @@ jobs:
           perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
 
           sed -i 's/-dirty//' ./scripts/setlocalversion
+
       - name: Build Kernel
         run: |
           set -e
@@ -419,6 +434,7 @@ jobs:
             Image Image.gz dtbs
 
           ccache --show-stats
+
       - name: Build Modules
         if: ${{ inputs.build_modules }}
         run: |
@@ -454,19 +470,20 @@ jobs:
           find ../modules_out -name "*.ko" -exec $STRIP --strip-debug {} \;
 
           echo "Modules built successfully!"
+
       - name: Patch Image for KMP (SukiSU only)
         if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           cd kernel/arch/arm64/boot
 
           echo "Patching Image file for KMP..."
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kmp/patch_linux" -o patch
-          chmod 777 patch
-          ./patch
+          chmod +x ../../../../../SukiSU_patch/kmp/patch_linux
+          ../../../../../SukiSU_patch/kmp/patch_linux
           rm -rf Image
           mv oImage Image
 
           gzip -n -k -f -9 ./Image > ./Image.gz
+
       - name: Create Boot Images Directory and Copy Files
         run: |
           echo "Creating bootimgs directory..."
@@ -486,6 +503,7 @@ jobs:
           cp bootimgs/Image ./
           cp bootimgs/Image.gz ./
           cp bootimgs/Image.lz4 ./
+
       - name: Create Boot Images
         run: |
           cd bootimgs
@@ -547,6 +565,7 @@ jobs:
           cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
           cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
           cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
+
       - name: Package with AnyKernel3
         run: |
           cp bootimgs/Image AnyKernel3/
@@ -616,6 +635,7 @@ jobs:
           rm -f Image.gz
           ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
           zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -626,6 +646,7 @@ jobs:
             Image
             Image.gz
             Image.lz4
+
       - name: Create Release
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v1

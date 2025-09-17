@@ -43,7 +43,7 @@ on:
         description: 'Build device modules'
         required: true
         type: boolean
-        default: true
+        default: false
       custom_version:
         description: 'Custom version string (optional)'
         required: false

@@ -138,7 +138,7 @@ jobs:
 
       - name: "Clone AnyKernel3 and SUSFS/SukiSU helper repos"
         run: |
-          echo "Cloning AnyKernel3 and other dependencies..."
+          echo "Cloning AnyKernel3 and helper repositories..."
           ANYKERNEL_BRANCH="gki-2.0"
           SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
           echo "Using branch for SUSFS: $SUSFS_BRANCH"
@@ -177,9 +177,9 @@ jobs:
       - name: "Optional: Make platform-specific fixes (supp_op)"
         if: ${{ inputs.supp_op == true }}
         run: |
-          echo 'Applying platform-specific support patches (supp_op)...'
+          echo "Applying platform-specific support patches (supp_op)..."
           cd "$CONFIG/common/drivers/" || exit 0
-          echo 'Downloading hmbird_patch.c...'
+          echo "Downloading hmbird_patch.c..."
           curl -LSs "https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/dev/hmbird_patch.c" -o hmbird_patch.c || true
           if [ -f hmbird_patch.c ]; then
             echo "obj-y += hmbird_patch.o" >> Makefile
@@ -193,10 +193,10 @@ jobs:
           branch_input="${{ inputs.kernelsu_branch }}"
           variant_input="${{ inputs.kernelsu_variant }}"
           case "$branch_input" in
-            "Stable(标准)")
+            "Stable")
               echo "BRANCH=-s susfs-main" >> $GITHUB_ENV
               ;;
-            "Dev(开发)")
+            "Dev")
               case "$variant_input" in
                 "Official" | "MKSU") echo "BRANCH=-s main" >> $GITHUB_ENV ;;
                 "Next")              echo "BRANCH=-s next-susfs-dev" >> $GITHUB_ENV ;;
@@ -289,7 +289,7 @@ jobs:
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
 
-      - name: "Copy source files & apply LZ4KD & Lz4k_oplus patches (if use_zram)"
+      - name: "Copy source files & apply LZ4KD & LZ4K_OPLUS patches (if use_zram)"
         if: ${{ inputs.use_zram == true }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -344,7 +344,7 @@ jobs:
           if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
             sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$CONFIG/common/modules.bzl" || true
             echo "CONFIG_MODULE_SIG_FORCE=n" >> "$CONFIG_FILE"
-            echo 'Android14_Bazel: zram&zsmalloc adjustments done'
+            echo "Android14_Bazel: zram & zsmalloc adjustments done"
           fi
           if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
             echo "CONFIG_CRYPTO_LZ4HC=y" >> "$CONFIG_FILE"

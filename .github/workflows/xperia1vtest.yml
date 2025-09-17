@@ -61,6 +61,9 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
+      # Global stack frame size limit
+      KCFLAGS: "-Wframe-larger-than=9999"
+      KCPPFLAGS: "-Wframe-larger-than=9999"
       
     steps:
       - name: Maximize Build Space
@@ -379,10 +382,10 @@ jobs:
           export STRIP=llvm-strip
           
           # Add global stack frame size limit increase
-          export KCFLAGS="-Wframe-larger-than=8000"
-          export KCPPFLAGS="-Wframe-larger-than=8000"
+          export KCFLAGS="-Wframe-larger-than=9999"
+          export KCPPFLAGS="-Wframe-larger-than=9999"
           
-          echo "Building kernel with increased stack frame size limit (8000 bytes)..."
+          echo "Building kernel with increased stack frame size limit (9999 bytes)..."
           
           # Build kernel
           make -j$(nproc) \
@@ -390,8 +393,8 @@ jobs:
             CC="ccache clang" \
             LLVM=1 \
             LLVM_IAS=1 \
-            KCFLAGS="-Wframe-larger-than=8000" \
-            KCPPFLAGS="-Wframe-larger-than=8000" \
+            KCFLAGS="-Wframe-larger-than=9999" \
+            KCPPFLAGS="-Wframe-larger-than=9999" \
             Image Image.gz dtbs
           
           # Show ccache stats
@@ -423,12 +426,12 @@ jobs:
           export CC="ccache clang"
           export LLVM=1
           export LLVM_IAS=1
-          export KCFLAGS="-Wframe-larger-than=8000"
-          export KCPPFLAGS="-Wframe-larger-than=8000"
+          export KCFLAGS="-Wframe-larger-than=9999"
+          export KCPPFLAGS="-Wframe-larger-than=9999"
           
           make -j$(nproc) \
-            KCFLAGS="-Wframe-larger-than=8000" \
-            KCPPFLAGS="-Wframe-larger-than=8000" \
+            KCFLAGS="-Wframe-larger-than=9999" \
+            KCPPFLAGS="-Wframe-larger-than=9999" \
             modules
           
           # Install modules to temporary directory

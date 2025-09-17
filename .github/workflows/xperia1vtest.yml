@@ -54,7 +54,7 @@ jobs:
       KERNEL_VERSION: "5.15"
       KERNEL_SUBLEVEL: "185"
       ANDROID_VERSION: "android13"
-      OS_PATCH_LEVEL: "2025-08"  # Updated based on the Android security update level provided
+      OS_PATCH_LEVEL: "2025-08"  # Updated to the Android security update level provided
       CONFIG: "sony-sm8550-5.15"
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
@@ -84,7 +84,7 @@ jobs:
             lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev \
             libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            python3 python3-pip clang lld libelf-dev pahole  # Add pahole to install list
+            python3 python3-pip clang lld libelf-dev pahole  # Ensure pahole is installed here
       - name: Configure ccache
         run: |
           mkdir -p ~/.ccache
@@ -271,9 +271,6 @@ jobs:
 
           # Start with Sony's GKI defconfig
           make ARCH=arm64 gki_defconfig
-
-          # Disable CONFIG_DEBUG_INFO_BTF to fix the build error
-          sed -i 's/CONFIG_DEBUG_INFO_BTF=y/# CONFIG_DEBUG_INFO_BTF is not set/' .config
 
           # Add KernelSU configuration
           echo "CONFIG_KSU=y" >> arch/arm64/configs/gki_defconfig

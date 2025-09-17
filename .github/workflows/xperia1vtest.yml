@@ -579,11 +579,6 @@ jobs:
             **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
             **SUSFS:** ${{ inputs.use_susfs && 'Enabled' || 'Disabled' }}
             **ZRAM Optimizations:** ${{ inputs.use_zram && 'Enabled' || 'Disabled' }}
-            **Build Date:** $(date +%Y-%m-%d)
-
-            ### Installation
-            1. Flash the zip file via custom recovery (TWRP/OrangeFox)
-            2. Or extract and flash boot.img via fastboot
 
             ### Features
             - KernelSU ${{ inputs.kernelsu_variant }} variant

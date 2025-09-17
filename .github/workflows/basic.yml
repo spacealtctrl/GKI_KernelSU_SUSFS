@@ -61,7 +61,7 @@ jobs:
       CCACHE_HARDLINK: "true"
 
     steps:
-      - name: Maximize Build Space
+      - name: "Maximize Build Space"
         uses: AdityaGarg8/remove-unwanted-software@v5
         with:
           remove-dotnet: 'true'
@@ -74,16 +74,16 @@ jobs:
           remove-cached-tools: 'false'
           verbose: 'true'
 
-      - name: Set CONFIG environment variable
+      - name: "Set CONFIG environment variable"
         run: |
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
           echo "CONFIG set to: $CONFIG"
 
-      - name: Install ccache and dependencies
+      - name: "Install ccache and dependencies"
         run: sudo apt update && sudo apt upgrade -y && sudo apt install -y ccache python3 git curl perl unzip
 
-      - name: Configure ccache
+      - name: "Configure ccache"
         run: |
           mkdir -p ~/.cache/bazel
           ccache --version
@@ -91,7 +91,7 @@ jobs:
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
 
-      - name: Restore ccache from cache
+      - name: "Restore ccache from cache"
         uses: actions/cache@v4
         with:
           path: ~/.ccache
@@ -99,7 +99,7 @@ jobs:
           restore-keys: |
             ${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-ccache-
 
-      - name: Cache toolchain
+      - name: "Cache toolchain"
         id: cache-toolchain
         uses: actions/cache@v4
         with:
@@ -108,7 +108,7 @@ jobs:
             mkbootimg
           key: toolchain-${{ runner.os }}-v1
 
-      - name: Download toolchain (if cache miss)
+      - name: "Download toolchain (if cache miss)"
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           AOSP_MIRROR=https://android.googlesource.com
@@ -116,27 +116,27 @@ jobs:
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
 
-      - name: Set tool env variables
+      - name: "Set tool env variables"
         run: |
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
 
-      - name: Key setup (test key)
+      - name: "Key setup (test key)"
         env:
           BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
 
-      - name: Install repo helper (kept for compatibility)
+      - name: "Install repo helper (kept for compatibility)"
         run: |
           mkdir -p ./git-repo
           curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
           chmod a+rx ./git-repo/repo
           echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
 
-      - name: Clone AnyKernel3 and SUSFS/SukiSU helper repos
+      - name: "Clone AnyKernel3 and SUSFS/SukiSU helper repos"
         run: |
           echo "Cloning AnyKernel3 and other dependencies..."
           ANYKERNEL_BRANCH="gki-2.0"
@@ -147,15 +147,13 @@ jobs:
           git clone https://github.com/Tools-cx-app/kernel_patches.git --depth 1 || true
           git clone https://github.com/ShirkNeko/SukiSU_patch.git --depth 1 || true
 
-      # ---- REPLACED: Instead of repo init/sync, clone the Sony kernel + modules into $CONFIG/common ----
-      - name: Initialize and place Sony SM8550 kernel + modules into CONFIG/common
+      - name: "Initialize and place Sony SM8550 kernel + modules into CONFIG/common"
         run: |
           set -e
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
           echo "Creating folder for configuration: $CONFIG..."
           mkdir -p "$CONFIG"
           cd "$CONFIG"
-          # Use the LineageOS branch you provided (lineage-22.2)
           KERNEL_REPO="https://github.com/LineageOS/android_kernel_sony_sm8550"
           MODULES_REPO="https://github.com/LineageOS/android_kernel_sony_sm8550-modules"
           KERNEL_BRANCH="lineage-22.2"
@@ -165,25 +163,22 @@ jobs:
           echo "Cloning modules ($MODULES_REPO -b $MODULES_BRANCH) into $CONFIG/common/modules ..."
           mkdir -p common/modules
           git clone --depth 1 -b "$MODULES_BRANCH" "$MODULES_REPO" common/modules || true
-          # Verify expected defconfig exists; fallback to provided path if necessary
           DEFCONFIG_PATH="common/arch/arm64/configs/gki_defconfig"
           if [ -f "$DEFCONFIG_PATH" ]; then
             echo "Found gki_defconfig at $DEFCONFIG_PATH"
           else
             echo "WARNING: expected defconfig not found at $DEFCONFIG_PATH"
             ls -la common/arch/arm64/configs || true
-            # continue anyway — many later steps will modify this file or create it
           fi
-          # Record REMOTE_BRANCH variable for compatibility with later logic
           REMOTE_BRANCH="$KERNEL_BRANCH"
           echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
           cd ..
 
-      - name: Optional: Make platform-specific fixes (supp_op)
-        if: ${{ inputs.supp_op }}
+      - name: "Optional: Make platform-specific fixes (supp_op)"
+        if: ${{ inputs.supp_op == true }}
         run: |
           echo 'Applying platform-specific support patches (supp_op)...'
-          cd "${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}/common/drivers/" || exit 0
+          cd "$CONFIG/common/drivers/" || exit 0
           echo 'Downloading hmbird_patch.c...'
           curl -LSs "https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/dev/hmbird_patch.c" -o hmbird_patch.c || true
           if [ -f hmbird_patch.c ]; then
@@ -193,7 +188,7 @@ jobs:
             echo "hmbird_patch.c not found; skipping"
           fi
 
-      - name: Determine KernelSU branch
+      - name: "Determine KernelSU branch"
         run: |
           branch_input="${{ inputs.kernelsu_branch }}"
           variant_input="${{ inputs.kernelsu_variant }}"
@@ -207,18 +202,18 @@ jobs:
                 "Next")              echo "BRANCH=-s next-susfs-dev" >> $GITHUB_ENV ;;
                 "SukiSU")            echo "BRANCH=-s susfs-test" >> $GITHUB_ENV ;;
                 *)
-                  echo "错误：未定义开发分支的变体 '$variant_input'" >&2
+                  echo "ERROR: undefined dev-branch variant '$variant_input'" >&2
                   exit 1
                   ;;
               esac
               ;;
             *)
-              echo "错误：需要自定义分支时未提供参数" >&2
+              echo "ERROR: kernelsu_branch not provided or unsupported" >&2
               exit 1
               ;;
           esac
 
-      - name: Add KernelSU
+      - name: "Add KernelSU"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
@@ -236,7 +231,7 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash $BRANCH
           fi
 
-      - name: Apply SUSFS patches for selected KernelSU variant
+      - name: "Apply SUSFS patches for selected KernelSU variant"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
@@ -280,7 +275,7 @@ jobs:
             patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
           fi
 
-      - name: Apply hooks patches
+      - name: "Apply hooks patches"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG/common"
@@ -294,8 +289,8 @@ jobs:
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
 
-      - name: Copy source files & apply LZ4KD & Lz4k_oplus patches (if use_zram)
-        if: ${{ inputs.use_zram }}
+      - name: "Copy source files & apply LZ4KD & Lz4k_oplus patches (if use_zram)"
+        if: ${{ inputs.use_zram == true }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG/common"
@@ -308,7 +303,7 @@ jobs:
           cp ../../SukiSU_patch/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch . || true
           patch -p1 -F 3 < lz4k_oplus.patch || true
 
-      - name: Apply hide-stuff patch
+      - name: "Apply hide-stuff patch"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG/common"
@@ -320,8 +315,8 @@ jobs:
             patch -p1 -F 3 < 69_hide_stuff.patch || true
           fi
 
-      - name: Configure LZ4KD & LZ4K_OPLUS in gki_defconfig (if use_zram)
-        if: ${{ inputs.use_zram }}
+      - name: "Configure LZ4KD & LZ4K_OPLUS in gki_defconfig (if use_zram)"
+        if: ${{ inputs.use_zram == true }}
         run: |
           set -x
           set -e
@@ -360,13 +355,13 @@ jobs:
             echo "CONFIG_ZRAM_WRITEBACK=y" >> "$CONFIG_FILE"
           fi
 
-      - name: Set BBR as default congestion algorithm (optional)
-        if: ${{ inputs.set_defbbr }}
+      - name: "Set BBR as default congestion algorithm (optional)"
+        if: ${{ inputs.set_defbbr == true }}
         run: |
           CONFIG_FILE="$CONFIG/common/arch/arm64/configs/gki_defconfig"
           echo "CONFIG_DEFAULT_BBR=y" >> "$CONFIG_FILE"
 
-      - name: Add SUSFS configuration settings to gki_defconfig
+      - name: "Add SUSFS configuration settings to gki_defconfig"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
@@ -413,7 +408,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
 
-      - name: Configure kernel localversion / build timestamp
+      - name: "Configure kernel localversion / build timestamp"
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
@@ -439,7 +434,7 @@ jobs:
             fi
           fi
 
-      - name: Build with retry
+      - name: "Build with retry"
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 30
@@ -460,8 +455,8 @@ jobs:
             fi
             ccache --show-stats
 
-      - name: Patch Image (Android12/13 KPM - SukiSU)
-        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android12' || inputs.android_version == 'android13') }}
+      - name: "Patch Image (Android12/13 KPM - SukiSU)"
+        if: ${{ inputs.use_kpm == true && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android12' || inputs.android_version == 'android13') }}
         run: |
           if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
             echo "Patching Image file..."
@@ -474,8 +469,8 @@ jobs:
             cd ../../../..
           fi
 
-      - name: Patch Image (Android14/15 KPM - SukiSU)
-        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android14' || inputs.android_version == 'android15') }}
+      - name: "Patch Image (Android14/15 KPM - SukiSU)"
+        if: ${{ inputs.use_kpm == true && inputs.kernelsu_variant == 'SukiSU' && (inputs.android_version == 'android14' || inputs.android_version == 'android15') }}
         run: |
           if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
             echo "Patching Image file..."
@@ -488,7 +483,7 @@ jobs:
             cd ../../..
           fi
 
-      - name: Create bootimgs folder and copy images (Android12/13)
+      - name: "Create bootimgs folder and copy images (Android12/13)"
         if: ${{ inputs.android_version == 'android12' || inputs.android_version == 'android13' }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -499,7 +494,7 @@ jobs:
           cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 . || true
           gzip -n -k -f -9 ./Image > ./Image.gz || true
 
-      - name: Create bootimgs folder and copy images (Android14/15)
+      - name: "Create bootimgs folder and copy images (Android14/15)"
         if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -510,7 +505,7 @@ jobs:
           cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 . || true
           gzip -n -k -f -9 ./Image > ./Image.gz || true
 
-      - name: Create AnyKernel zip variants
+      - name: "Create AnyKernel zip variants"
         run: |
           echo "Creating zip files for all formats..."
           cd ./AnyKernel3
@@ -527,7 +522,7 @@ jobs:
           zip -r "../$ZIP_NAME" ./* || true
           rm -f ./Image.gz || true
 
-      - name: Build and sign boot images (Android12)
+      - name: "Build and sign boot images (Android12)"
         if: ${{ inputs.android_version == 'android12' }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
@@ -554,7 +549,7 @@ jobs:
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH || true
           cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img || true
 
-      - name: Build and sign boot images (Android13/14/15)
+      - name: "Build and sign boot images (Android13/14/15)"
         if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
           cd bootimgs
@@ -569,7 +564,7 @@ jobs:
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH || true
           cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img || true
 
-      - name: Upload build artifacts
+      - name: "Upload build artifacts"
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.kernelsu_variant }}_kernel-${{ env.CONFIG }}

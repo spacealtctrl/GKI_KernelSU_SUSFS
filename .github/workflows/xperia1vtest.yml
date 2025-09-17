@@ -359,6 +359,22 @@ jobs:
           # Regenerate config
           make ARCH=arm64 gki_defconfig
 
+      - name: Apply Stack Size Patch
+        run: |
+          cd kernel
+          cat > increase_stack_size.patch << 'EOF'
+          diff --git a/fs/fuse/Makefile b/fs/fuse/Makefile
+          index xxxxxxx..yyyyyyy 100644
+          --- a/fs/fuse/Makefile
+          +++ b/fs/fuse/Makefile
+          @@ -X,6 +X,7 @@
+           # Add this line to increase stack frame size limit for fuse module
+           KBUILD_CFLAGS += -Wframe-larger-than=8000
+           obj-$(CONFIG_FUSE_FS) += fuse.o
+          EOF
+          # Apply the patch
+          patch -p1 < increase_stack_size.patch || true
+
       - name: Build Kernel
         run: |
           cd kernel

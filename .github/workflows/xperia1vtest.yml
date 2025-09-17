@@ -158,7 +158,7 @@ jobs:
       - name: Copy Device Tree Source Files
         run: |
           echo "Copying device tree source files from the separate repository..."
-          cp -r devicetrees/dts/* kernel/arch/arm64/boot/dts/
+          cp -r devicetrees/dts/* kernel/arch/arm64/boot/dts/vendor/
       - name: Setup KernelSU
         run: |
           cd kernel

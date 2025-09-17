@@ -1,0 +1,91 @@
+name: Android 15 Kernel Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_kernel_sony_sm8550
+          ref: lineage-22.2
+          path: kernel
+
+      - name: Checkout kernel modules
+        uses: actions/checkout@v4
+        with:
+          repository: LineageOS/android_kernel_sony_sm8550-modules
+          ref: lineage-22.2
+          path: modules
+
+      - name: Checkout AnyKernel3
+        uses: actions/checkout@v4
+        with:
+          repository: osm0sis/AnyKernel3
+          path: AnyKernel3
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential bc bison flex git wget \
+            libssl-dev libncurses5-dev libelf-dev python3 unzip zip
+
+      - name: Download AOSP toolchains (Clang + GCC)
+        run: |
+          mkdir -p toolchains && cd toolchains
+          # Clang 17 (Android 15 uses clang-r5239)
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r5239.tar.gz -O clang.tar.gz
+          mkdir clang && tar -xf clang.tar.gz -C clang
+          # GCC 4.9 (AOSP prebuilts)
+          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/master.tar.gz -O gcc64.tar.gz
+          mkdir gcc64 && tar -xf gcc64.tar.gz -C gcc64
+          wget -q https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/heads/master.tar.gz -O gcc32.tar.gz
+          mkdir gcc32 && tar -xf gcc32.tar.gz -C gcc32
+
+      - name: Set up environment
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+          echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchains/clang/bin" >> $GITHUB_ENV
+          echo "PATH=$GITHUB_WORKSPACE/toolchains/clang/bin:$PATH" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=$GITHUB_WORKSPACE/toolchains/gcc64/bin/aarch64-linux-android-" >> $GITHUB_ENV
+          echo "CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/toolchains/gcc32/bin/arm-linux-androideabi-" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "LLVM=1" >> $GITHUB_ENV
+          echo "LLVM_IAS=1" >> $GITHUB_ENV
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 gki_defconfig
+          make -j$(nproc) O=out ARCH=arm64
+
+      - name: Copy kernel Image.gz-dtb
+        run: |
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+
+      - name: Build modules
+        working-directory: kernel
+        run: |
+          make -j$(nproc) O=out ARCH=arm64 modules
+          make -j$(nproc) O=out ARCH=arm64 INSTALL_MOD_PATH=../modules_install modules_install
+
+      - name: Copy modules into AnyKernel3
+        run: |
+          mkdir -p AnyKernel3/modules/system/lib/modules
+          cp -r modules_install/lib/modules/* AnyKernel3/modules/system/lib/modules/
+
+      - name: Package AnyKernel3 zip
+        run: |
+          cd AnyKernel3
+          zip -r9 ../AnyKernel3.zip ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3
+          path: AnyKernel3.zip

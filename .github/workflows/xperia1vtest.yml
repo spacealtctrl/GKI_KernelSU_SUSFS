@@ -43,11 +43,16 @@ on:
         required: true
         type: boolean
         default: true
-      use_kpm:
-        description: 'Enable KPM patches'
+      use_kmp:
+        description: 'Enable KMP patches'
         required: true
         type: boolean
         default: true
+      build_modules:
+        description: 'Build device modules'
+        required: true
+        type: boolean
+        default: false
       custom_version:
         description: 'Custom version string (optional)'
         required: false
@@ -511,12 +516,12 @@ jobs:
           
           echo "Modules built successfully!"
 
-      - name: Patch Image for KPM (SukiSU only)
-        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
+      - name: Patch Image for KMP (SukiSU only)
+        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           cd kernel/arch/arm64/boot
           
-          echo "Patching Image file for KPM..."
+          echo "Patching Image file for KMP..."
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kmp/patch_linux" -o patch
           chmod 777 patch
           ./patch

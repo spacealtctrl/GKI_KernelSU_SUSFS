@@ -151,6 +151,13 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
             -b lineage-22.2 --depth=1 kernel
           
+          # Clone modules if building modules is enabled
+          if [ "${{ inputs.build_modules }}" = "true" ]; then
+            echo "Cloning Sony SM8550 modules repository..."
+            git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git \
+              --depth=1 modules
+          fi
+          
           # Clone AnyKernel3 with GKI branch
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
@@ -465,6 +472,45 @@ jobs:
             # Show ccache stats
             ccache --show-stats
 
+      - name: Build Modules
+        if: ${{ inputs.build_modules }}
+        run: |
+          cd kernel
+          
+          # Build modules with increased stack frame size
+          export ARCH=arm64
+          export PATH=$CLANG_PATH:$PATH
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
+          export LLVM=1
+          export LLVM_IAS=1
+          export KCFLAGS="-Wframe-larger-than=9999"
+          export KCPPFLAGS="-Wframe-larger-than=9999"
+          
+          echo "Building kernel modules..."
+          make -j$(nproc) \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            KCFLAGS="-Wframe-larger-than=9999" \
+            KCPPFLAGS="-Wframe-larger-than=9999" \
+            modules
+          
+          # Install modules to temporary directory
+          make INSTALL_MOD_PATH=../modules_out modules_install
+          
+          # Strip modules
+          find ../modules_out -name "*.ko" -exec $STRIP --strip-debug {} \;
+          
+          echo "Modules built successfully!"
+
       - name: Patch Image for KPM (SukiSU only)
         if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
@@ -582,6 +628,13 @@ jobs:
           mkdir -p AnyKernel3/dtbs
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
           
+          # Copy modules if built
+          if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then
+            echo "Copying kernel modules to AnyKernel3..."
+            mkdir -p AnyKernel3/modules/system/lib/modules
+            find modules_out -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
+          fi
+          
           # Configure AnyKernel3 for Sony SM8550 with Android version
           cat > AnyKernel3/anykernel.sh << 'EOF'
           # AnyKernel3 Ramdisk Mod Script
@@ -590,7 +643,7 @@ jobs:
           properties() { '
           kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }})
           do.devicecheck=1
-          do.modules=0
+          do.modules=${{ inputs.build_modules && '1' || '0' }}
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
@@ -613,6 +666,15 @@ jobs:
           
           # AnyKernel install
           dump_boot;
+          
+          # Install modules if present
+          if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "$home/modules" ]; then
+            ui_print "- Installing kernel modules...";
+            mount -o rw,remount /system;
+            cp -rf $home/modules/* /;
+            mount -o ro,remount /system;
+          fi;
+          
           write_boot;
           EOF
           
@@ -658,6 +720,7 @@ jobs:
             **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
             **SUSFS:** ${{ inputs.use_susfs && 'Enabled' || 'Disabled' }}
             **ZRAM Optimizations:** ${{ inputs.use_zram && 'Enabled' || 'Disabled' }}
+            **Modules:** ${{ inputs.build_modules && 'Built and included' || 'Kernel-only build (GKI drivers built-in)' }}
             **Android Security Patch:** ${{ env.ANDROID_SECURITY_PATCH }}
             **Vendor Security Patch:** ${{ env.VENDOR_SECURITY_PATCH }}
             **Build Date:** $(date +%Y-%m-%d)

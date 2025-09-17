@@ -43,16 +43,11 @@ on:
         required: true
         type: boolean
         default: true
-      use_kmp:
-        description: 'Enable KMP patches'
+      use_kpm:
+        description: 'Enable KPM patches'
         required: true
         type: boolean
         default: true
-      build_modules:
-        description: 'Build device modules'
-        required: true
-        type: boolean
-        default: false
       custom_version:
         description: 'Custom version string (optional)'
         required: false
@@ -432,50 +427,45 @@ jobs:
           # Remove dirty flag
           sed -i 's/-dirty//' ./scripts/setlocalversion
 
-      - name: Build Kernel with Retry
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 60
-          max_attempts: 3
-          retry_on: timeout
-          command: |
-            set -e
-            set -x
-            cd kernel
-            
-            # Setup build environment with increased stack frame size
-            export ARCH=arm64
-            export SUBARCH=arm64
-            export PATH=$CLANG_PATH:$PATH
-            export CROSS_COMPILE=aarch64-linux-gnu-
-            export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-            export CC="ccache clang"
-            export CXX="ccache clang++"
-            export LD=ld.lld
-            export AR=llvm-ar
-            export NM=llvm-nm
-            export OBJCOPY=llvm-objcopy
-            export OBJDUMP=llvm-objdump
-            export STRIP=llvm-strip
-            
-            # Add global stack frame size limit increase
-            export KCFLAGS="-Wframe-larger-than=9999"
-            export KCPPFLAGS="-Wframe-larger-than=9999"
-            
-            echo "Building kernel with increased stack frame size limit (9999 bytes)..."
-            
-            # Build kernel
-            make -j$(nproc) \
-              ARCH=arm64 \
-              CC="ccache clang" \
-              LLVM=1 \
-              LLVM_IAS=1 \
-              KCFLAGS="-Wframe-larger-than=9999" \
-              KCPPFLAGS="-Wframe-larger-than=9999" \
-              Image Image.gz dtbs
-            
-            # Show ccache stats
-            ccache --show-stats
+      - name: Build Kernel
+        run: |
+          set -e
+          set -x
+          cd kernel
+          
+          # Setup build environment with increased stack frame size
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH=$CLANG_PATH:$PATH
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
+          export STRIP=llvm-strip
+          
+          # Add global stack frame size limit increase
+          export KCFLAGS="-Wframe-larger-than=9999"
+          export KCPPFLAGS="-Wframe-larger-than=9999"
+          
+          echo "Building kernel with increased stack frame size limit (9999 bytes)..."
+          
+          # Build kernel
+          make -j$(nproc) \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            KCFLAGS="-Wframe-larger-than=9999" \
+            KCPPFLAGS="-Wframe-larger-than=9999" \
+            Image Image.gz dtbs
+          
+          # Show ccache stats
+          ccache --show-stats
 
       - name: Build Modules
         if: ${{ inputs.build_modules }}
@@ -516,12 +506,12 @@ jobs:
           
           echo "Modules built successfully!"
 
-      - name: Patch Image for KMP (SukiSU only)
-        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
+      - name: Patch Image for KPM (SukiSU only)
+        if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           cd kernel/arch/arm64/boot
           
-          echo "Patching Image file for KMP..."
+          echo "Patching Image file for KPM..."
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kmp/patch_linux" -o patch
           chmod 777 patch
           ./patch

@@ -133,20 +133,44 @@ jobs:
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
       - name: Initialize Sony Kernel Source
         run: |
+          # Set CONFIG environment variable for the whole workflow
+          CONFIG="android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          echo "CONFIG=$CONFIG" >> $GITHUB_ENV
+          
           # Create config directory
-          CONFIG_DIR="android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
-          mkdir -p "$CONFIG_DIR"
-          cd "$CONFIG_DIR"
+          mkdir -p "$CONFIG"
+          cd "$CONFIG"
 
           # Initialize kernel manifest for Android 14
+          # Try the specific patch level first, then fallback to a known good branch
           FORMATTED_BRANCH="android14-5.15-${{ env.OS_PATCH_LEVEL }}"
-          $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest \
-            -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+          echo "Attempting to initialize with branch: common-${FORMATTED_BRANCH}"
+          
+          # Try to initialize with the specific branch
+          if ! $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest \
+            -b common-${FORMATTED_BRANCH} --repo-rev=v2.16 2>/dev/null; then
+            echo "Branch common-${FORMATTED_BRANCH} not found, trying fallback branches..."
+            
+            # Try with 2024-08 as fallback (known good Android 14 branch)
+            FORMATTED_BRANCH="android14-5.15-2024-08"
+            if ! $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest \
+              -b common-${FORMATTED_BRANCH} --repo-rev=v2.16 2>/dev/null; then
+              
+              # Final fallback to the base android14-5.15 branch
+              FORMATTED_BRANCH="android14-5.15"
+              echo "Using base branch: common-${FORMATTED_BRANCH}"
+              $REPO init --depth=1 --u https://android.googlesource.com/kernel/manifest \
+                -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+            fi
+          fi
 
+          echo "Successfully initialized with branch: common-${FORMATTED_BRANCH}"
+          
           # Check for deprecated branch
-          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH} 2>/dev/null || echo "")
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
-          if grep -q deprecated <<< $REMOTE_BRANCH; then
+          
+          if [ -n "$REMOTE_BRANCH" ] && grep -q deprecated <<< "$REMOTE_BRANCH"; then
             echo "Found deprecated branch: $FORMATTED_BRANCH"
             sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
           fi
@@ -154,12 +178,11 @@ jobs:
           # Sync repository
           $REPO --version
           $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast
-
-          # Apply Sony-specific patches here if needed
-          # For now, we'll work with the GKI kernel as base
+          
+          echo "REMOTE_BRANCH=$REMOTE_BRANCH" >> $GITHUB_ENV
       - name: Setup KernelSU
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          cd "$CONFIG"
 
           # Determine branch based on input
           case "${{ inputs.kernelsu_branch }}" in
@@ -201,7 +224,7 @@ jobs:
       - name: Apply SUSFS Patches
         if: ${{ inputs.use_susfs }}
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          cd "$CONFIG"
 
           echo "Applying SUSFS patches for Android 14 - 5.15..."
 
@@ -242,7 +265,7 @@ jobs:
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
       - name: Apply Additional Patches
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
+          cd "$CONFIG/common"
 
           # Apply hooks patches based on variant
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
@@ -261,7 +284,7 @@ jobs:
       - name: Apply ZRAM Optimizations
         if: ${{ inputs.use_zram }}
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
+          cd "$CONFIG/common"
 
           # Copy LZ4K sources
           cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
@@ -281,7 +304,7 @@ jobs:
           fi
       - name: Configure Kernel
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/common"
+          cd "$CONFIG/common"
 
           # Start with GKI defconfig
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
@@ -376,7 +399,7 @@ jobs:
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
       - name: Build Kernel with Bazel
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          cd "$CONFIG"
 
           # Setup build environment
           export KCFLAGS="-Wframe-larger-than=9999"
@@ -396,7 +419,7 @@ jobs:
       - name: Patch Image for KPM (SukiSU only)
         if: ${{ inputs.use_kpm && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64"
+          cd "$CONFIG/bazel-bin/common/kernel_aarch64"
 
           echo "Patching Image file for KPM..."
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
@@ -410,7 +433,7 @@ jobs:
       - name: Build Modules
         if: ${{ inputs.build_modules }}
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}"
+          cd "$CONFIG"
 
           # Build modules with Bazel
           echo "Building modules with Bazel..."
@@ -427,7 +450,7 @@ jobs:
           find ../modules_out -name "*.ko" -exec llvm-strip --strip-debug {} \;
       - name: Create Boot Images
         run: |
-          cd "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64"
+          cd "$CONFIG/bazel-bin/common/kernel_aarch64"
 
           # Create different compression formats
           if [ ! -f Image.gz ]; then
@@ -482,13 +505,13 @@ jobs:
       - name: Package with AnyKernel3
         run: |
           # Copy kernel images from Bazel output
-          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image" AnyKernel3/
-          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image.gz" AnyKernel3/
-          cp "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin/common/kernel_aarch64/Image.lz4" AnyKernel3/ 2>/dev/null || true
+          cp "$CONFIG/bazel-bin/common/kernel_aarch64/Image" AnyKernel3/
+          cp "$CONFIG/bazel-bin/common/kernel_aarch64/Image.gz" AnyKernel3/
+          cp "$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4" AnyKernel3/ 2>/dev/null || true
 
           # Copy DTBs if available
           mkdir -p AnyKernel3/dtbs
-          find "android14-5.15-${{ env.KERNEL_SUBLEVEL }}/bazel-bin" -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
+          find "$CONFIG/bazel-bin" -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
 
           # Copy modules if built
           if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then

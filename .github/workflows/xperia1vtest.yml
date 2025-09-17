@@ -145,13 +145,20 @@ jobs:
             git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git \
               --depth=1 modules
           fi
+          echo "Cloning Sony SM8550 devicetrees repository..."
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
+            -b lineage-22.2 --depth=1 devicetrees
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
           SUSFS_BRANCH="gki-android14-5.15"
           echo "Using SUSFS branch: $SUSFS_BRANCH"
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           git clone https://github.com/Tools-cx-app/kernel_patches.git
-          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git  # Cloning the SukiSU_patch repository
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
+      - name: Copy Device Tree Source Files
+        run: |
+          echo "Copying device tree source files from the separate repository..."
+          cp -r devicetrees/dts/* kernel/arch/arm64/boot/dts/
       - name: Setup KernelSU
         run: |
           cd kernel
@@ -301,8 +308,6 @@ jobs:
           CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           EOF

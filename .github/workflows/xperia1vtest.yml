@@ -147,7 +147,7 @@ jobs:
           fi
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
-          SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}"
+          SUSFS_BRANCH="gki-${{ inputs.android_version }}"
           echo "Using SUSFS branch: $SUSFS_BRANCH"
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           git clone https://github.com/Tools-cx-app/kernel_patches.git

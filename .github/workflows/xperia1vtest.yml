@@ -147,7 +147,7 @@ jobs:
           fi
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
-          SUSFS_BRANCH="gki-${{ inputs.android_version }}"
+          SUSFS_BRANCH="gki-android15-6.6"
           echo "Using SUSFS branch: $SUSFS_BRANCH"
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           git clone https://github.com/Tools-cx-app/kernel_patches.git
@@ -556,3 +556,40 @@ jobs:
             Image
             Image.gz
             Image.lz4
+      - name: Create Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ inputs.kernelsu_variant }}-${{ github.run_number }}
+          name: Sony SM8550 Kernel ${{ inputs.android_version }} ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }} - ${{ inputs.kernelsu_variant }}
+          body: |
+            ## Sony SM8550 Custom Kernel - GKI Style Build
+            **Android Version:** ${{ inputs.android_version }}
+            **Kernel Version:** ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}
+            **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
+            **SUSFS:** ${{ inputs.use_susfs && 'Enabled' || 'Disabled' }}
+            **ZRAM Optimizations:** ${{ inputs.use_zram && 'Enabled' || 'Disabled' }}
+            **Modules:** ${{ inputs.build_modules && 'Built and included' || 'Kernel-only build (GKI drivers built-in)' }}
+            **Android Security Patch:** ${{ env.ANDROID_SECURITY_PATCH }}
+            **Vendor Security Patch:** ${{ env.VENDOR_SECURITY_PATCH }}
+            **Build Date:** $(date +%Y-%m-%d)
+            ### Installation
+            1. Flash the zip file via custom recovery (TWRP/OrangeFox)
+            2. Or extract and flash boot.img via fastboot
+            ### Features
+            - KernelSU ${{ inputs.kernelsu_variant }} variant
+            - SUSFS for enhanced root hiding
+            - ZRAM optimizations with LZ4KD compression
+            - Built from LineageOS 22.2 sources
+            - GKI-style build process with increased stack frame compatibility
+            - Multi-Android version support (13/14/15)
+            - Updated security patch levels matching modern devices
+            ### Device Compatibility
+            - Sony Xperia devices with SM8550 chipset
+            - Device codenames: pdx234, pdx237, yodo
+            - Supports Android 13, 14, and 15
+          files: |
+            *AnyKernel3.zip
+            *.img
+          draft: false
+          prerelease: false

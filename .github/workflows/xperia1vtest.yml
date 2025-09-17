@@ -495,6 +495,16 @@ jobs:
           cp bootimgs/Image AnyKernel3/
           cp bootimgs/Image.gz AnyKernel3/
           cp bootimgs/Image.lz4 AnyKernel3/
+          # Copying the ramdisk to AnyKernel3 directory
+          curl -LO https://mirrorbits.lineageos.org/full/pdx234/20250914/init_boot.img
+          mkdir init_boot_unpacked
+          cd init_boot_unpacked
+          python3 "$UNPACK_BOOTIMG" --boot_img ../init_boot.img
+          mkdir -p ramdisk_contents
+          cd ramdisk_contents
+          zcat ../ramdisk.img | cpio -idmv
+          cp -r * ../../../AnyKernel3/ramdisk/
+          # End of ramdisk copy
           mkdir -p AnyKernel3/dtbs
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
           if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then

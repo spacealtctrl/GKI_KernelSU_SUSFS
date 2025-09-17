@@ -201,8 +201,8 @@ jobs:
         if: ${{ inputs.use_susfs }}
         run: |
           cd kernel
-          echo "Applying SUSFS patches for ${{ inputs.android_version }} - ${{ env.KERNEL_VERSION }}..."
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.patch ./
+          echo "Applying SUSFS patches for gki-android15-6.6"
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./
           cp ../susfs4ksu/kernel_patches/fs/* ./fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
@@ -230,7 +230,7 @@ jobs:
             cd ./KernelSU
             cd ..
           fi
-          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.patch || true
+          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android15-66.patch || true
           if [ $KERNEL_SUBLEVEL -lt 123 ]; then
             echo 'Applying 5.15 legacy fix...'
             curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch

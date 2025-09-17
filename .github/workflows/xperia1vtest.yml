@@ -155,11 +155,10 @@ jobs:
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           git clone https://github.com/Tools-cx-app/kernel_patches.git
           git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
-      - name: Copy Device Tree Source Files
+      - name: Copy Device Tree Source Files (via symlink)
         run: |
-          echo "Copying device tree source files from the separate repository..."
-          mkdir -p kernel/arch/arm64/boot/dts/vendor/
-          cp -r devicetrees/* kernel/arch/arm64/boot/dts/vendor/
+          echo "Creating symlink for device tree source files..."
+          ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
       - name: Setup KernelSU
         run: |
           cd kernel

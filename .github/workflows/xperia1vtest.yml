@@ -499,7 +499,7 @@ jobs:
           cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
           cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
           cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
-- name: Package with AnyKernel3
+      - name: Package with AnyKernel3
         run: |
           cp bootimgs/Image AnyKernel3/
           cp bootimgs/Image.gz AnyKernel3/

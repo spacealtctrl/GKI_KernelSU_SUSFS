@@ -71,7 +71,6 @@ jobs:
       CCACHE_HARDLINK: "true"
       KCFLAGS: "-Wframe-larger-than=20000"
       KCPPFLAGS: "-Wframe-larger-than=20000"
-      # IMPORTANT: Use Android 14 patches for 5.15 kernel regardless of Android version
       SUSFS_KERNEL_VERSION: "android14-5.15"
 
     steps:
@@ -84,7 +83,14 @@ jobs:
             lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev \
             libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            python3 python3-pip clang lld libelf-dev dwarves
+            python3 python3-pip clang lld llvm libelf-dev dwarves
+          
+          # Create symlinks for LLVM tools if needed
+          sudo ln -sf /usr/bin/llvm-ar-* /usr/bin/llvm-ar 2>/dev/null || true
+          sudo ln -sf /usr/bin/llvm-nm-* /usr/bin/llvm-nm 2>/dev/null || true
+          sudo ln -sf /usr/bin/llvm-objcopy-* /usr/bin/llvm-objcopy 2>/dev/null || true
+          sudo ln -sf /usr/bin/llvm-objdump-* /usr/bin/llvm-objdump 2>/dev/null || true
+          sudo ln -sf /usr/bin/llvm-strip-* /usr/bin/llvm-strip 2>/dev/null || true
 
       - name: Configure ccache
         run: |
@@ -140,7 +146,6 @@ jobs:
 
       - name: Clone Kernel and Dependencies
         run: |
-          # Clone LineageOS 22.2 kernel (Android 15 with 5.15 kernel)
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
             -b lineage-22.2 --depth=1 kernel
           
@@ -154,11 +159,9 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 devicetrees
           
-          # AnyKernel3 for GKI 2.0
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
           
-          # IMPORTANT: Use android14-5.15 branch for SUSFS because kernel is 5.15
           SUSFS_BRANCH="gki-android14-5.15"
           echo "Using SUSFS branch: $SUSFS_BRANCH (for 5.15 kernel)"
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
@@ -175,7 +178,6 @@ jobs:
         run: |
           cd kernel
           
-          # Determine branch based on user selection
           case "${{ inputs.kernelsu_branch }}" in
             "Stable(标准)")
               BRANCH="-s susfs-main"
@@ -197,7 +199,6 @@ jobs:
               ;;
           esac
           
-          # Apply KernelSU based on variant
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
               echo "Adding Official KernelSU..."
@@ -227,12 +228,10 @@ jobs:
           cd kernel
           echo "Applying SUSFS patches for gki-android14-5.15 (5.15 kernel regardless of Android version)"
           
-          # Copy SUSFS patches - using android14-5.15 branch
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ./
           cp ../susfs4ksu/kernel_patches/fs/* ./fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
           
-          # Apply variant-specific SUSFS patches
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
             cd ./KernelSU
@@ -255,19 +254,12 @@ jobs:
             echo "SukiSU already has SUSFS support..."
           fi
           
-          # Apply main SUSFS patch
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
-          
-          # Apply legacy fix if needed (kernel sublevel < 123)
-          if [ ${{ env.KERNEL_SUBLEVEL }} -lt 123 ]; then
-            echo 'Kernel sublevel is less than 123, but we are at 176, skipping legacy fix...'
-          fi
 
       - name: Apply Additional Patches
         run: |
           cd kernel
           
-          # Apply variant-specific hooks
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Applying hooks for KernelSU-Next..."
             cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
@@ -278,7 +270,6 @@ jobs:
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
           
-          # Apply hide stuff patch
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             cp ../SukiSU_patch/69_hide_stuff.patch ./
           else
@@ -297,7 +288,6 @@ jobs:
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
           cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
           
-          # Apply 5.15 specific ZRAM patches
           if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch" ]; then
             cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch ./
             echo "Applying lz4kd patch for 5.15..."
@@ -314,16 +304,16 @@ jobs:
         run: |
           cd kernel
           
-          # Create base config
           make ARCH=arm64 gki_defconfig
           
-          # Add our configurations
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
           
-          # KernelSU base config
+          # Disable problematic BPF tools
+          echo "# CONFIG_DEBUG_INFO_BTF is not set" >> "$CONFIG_FILE"
+          echo "# CONFIG_BPF_LSM is not set" >> "$CONFIG_FILE"
+          
           echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
           
-          # Variant-specific KernelSU configs
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$CONFIG_FILE"
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
@@ -335,7 +325,6 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
           fi
           
-          # SUSFS configs
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
           CONFIG_KSU_SUSFS=y
@@ -354,7 +343,6 @@ jobs:
           EOF
           fi
           
-          # Network and general optimizations
           cat >> "$CONFIG_FILE" << EOF
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
@@ -369,7 +357,6 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           EOF
           
-          # ZRAM configs
           if [ "${{ inputs.use_zram }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
           CONFIG_ZSMALLOC=y
@@ -385,14 +372,12 @@ jobs:
           EOF
           fi
           
-          # Version string
           if [ ! -z "${{ inputs.custom_version }}" ]; then
             sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$CONFIG_FILE"
           else
             sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
           fi
           
-          # Regenerate config with our changes
           make ARCH=arm64 gki_defconfig
 
       - name: Configure Kernel Name and Build Info
@@ -425,20 +410,30 @@ jobs:
           # Apply configuration
           make ARCH=arm64 gki_defconfig
           
-          # Set up toolchain paths
-          export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
-          export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
-          export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
-          export CLANG_TRIPLE=aarch64-linux-gnu-
+          # Set up toolchain paths - MUST be exported BEFORE make
+          export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
+          export GCC_DIR_AARCH64=$(realpath ../lineage-gcc-aarch64)
+          export GCC_DIR_ARM=$(realpath ../lineage-gcc-arm)
           
-          # Critical environment variables for bootable kernel
-          export KBUILD_BUILD_USER=github
-          export KBUILD_BUILD_HOST=actions
+          # Add ALL toolchain paths to PATH
           export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
-          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib
+          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib:$LD_LIBRARY_PATH
+          
+          # Verify llvm-ar is available
+          which llvm-ar || echo "Warning: llvm-ar not found in AOSP toolchain, using system llvm-ar"
+          
+          # Set up cross compile
+          export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
           export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
+          
+          # Build environment
+          export KBUILD_BUILD_USER=github
+          export KBUILD_BUILD_HOST=actions
+          
+          # Use clang with ccache
           export CC="ccache clang"
+          export CXX="ccache clang++"
           export LD=ld.lld
           export AR=llvm-ar
           export NM=llvm-nm
@@ -455,9 +450,17 @@ jobs:
           echo "Building 5.15 kernel for ${{ inputs.android_version }}..."
           make ARCH=arm64 \
             LLVM=1 \
-            CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi- \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             CLANG_TRIPLE=$CLANG_TRIPLE \
+            CC="$CC" \
+            LD="$LD" \
+            AR="$AR" \
+            NM="$NM" \
+            STRIP="$STRIP" \
+            OBJCOPY="$OBJCOPY" \
+            OBJDUMP="$OBJDUMP" \
             -j$(nproc) \
             Image \
             Image.gz \
@@ -473,11 +476,11 @@ jobs:
           cd kernel
           
           # Use same environment as main build
-          export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
-          export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
-          export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
+          export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
+          export GCC_DIR_AARCH64=$(realpath ../lineage-gcc-aarch64)
+          export GCC_DIR_ARM=$(realpath ../lineage-gcc-arm)
           export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
-          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib
+          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib:$LD_LIBRARY_PATH
           export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
           export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
           export CC="ccache clang"
@@ -495,9 +498,17 @@ jobs:
           echo "Building kernel modules..."
           make ARCH=arm64 \
             LLVM=1 \
-            CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi- \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
             CLANG_TRIPLE=aarch64-linux-gnu- \
+            CC="$CC" \
+            LD="$LD" \
+            AR="$AR" \
+            NM="$NM" \
+            STRIP="$STRIP" \
+            OBJCOPY="$OBJCOPY" \
+            OBJDUMP="$OBJDUMP" \
             -j$(nproc) \
             modules
           
@@ -553,8 +564,6 @@ jobs:
           cd bootimgs
           echo "Building boot images for ${{ inputs.android_version }}..."
           
-          # Set OS version based on Android version
-          # IMPORTANT: Use actual Android version for boot image, not kernel version
           case "${{ inputs.android_version }}" in
             "android13") 
               OS_VERSION="13.0.0"

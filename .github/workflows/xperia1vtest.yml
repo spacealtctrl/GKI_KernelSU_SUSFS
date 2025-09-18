@@ -47,11 +47,6 @@ on:
         required: true
         type: boolean
         default: true
-      build_modules:
-        description: 'Build device modules'
-        required: true
-        type: boolean
-        default: true
       custom_version:
         description: 'Custom version string (optional)'
         required: false
@@ -74,6 +69,11 @@ jobs:
       SUSFS_KERNEL_VERSION: "android14-5.15"
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - name: Setup Build Environment
         run: |
           sudo apt update && sudo apt upgrade -y
@@ -112,7 +112,7 @@ jobs:
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           
-          git clone https://android.googlesource.com/toolchain/llvm-project aosp-clang
+          git clone $AOSP_MIRROR/toolchain/llvm-project aosp-clang
           cd aosp-clang
           git checkout b3a530ec6537146650e42be89f1089e9a3588460
           cd ..
@@ -133,7 +133,7 @@ jobs:
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
-          export AOSP_CLANG_PATH=$(pwd)/aosp-clang
+          AOSP_CLANG_PATH=$(pwd)/aosp-clang
           echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
           
           echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
@@ -148,12 +148,6 @@ jobs:
         run: |
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
             -b lineage-22.2 --depth=1 kernel
-          
-          if [ "${{ inputs.build_modules }}" = "true" ]; then
-            echo "Cloning Sony SM8550 modules repository..."
-            git clone https://github.com/LineageOS/android_kernel_sony_sm8550-modules.git \
-              --depth=1 modules
-          fi
           
           echo "Cloning Sony SM8550 devicetrees repository..."
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
@@ -383,8 +377,9 @@ jobs:
             sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
           fi
           
+          # This is an important step. You MUST re-apply the config after making changes.
           make ARCH=arm64 gki_defconfig
-
+          
       - name: Configure Kernel Name and Build Info
         run: |
           cd kernel
@@ -479,61 +474,6 @@ jobs:
           ls -la arch/arm64/boot/
           ccache --show-stats
 
-      - name: Build Modules
-        if: ${{ inputs.build_modules }}
-        run: |
-          cd kernel
-          
-          # Use same environment as main build
-          export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
-          export GCC_DIR_AARCH64=$(realpath ../lineage-gcc-aarch64)
-          export GCC_DIR_ARM=$(realpath ../lineage-gcc-arm)
-          export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
-          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib:$LD_LIBRARY_PATH
-          export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
-          export CC="ccache clang"
-          export LD=ld.lld
-          export AR=llvm-ar
-          export NM=llvm-nm
-          export OBJCOPY=llvm-objcopy
-          export OBJDUMP=llvm-objdump
-          export STRIP=llvm-strip
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS="-Wframe-larger-than=20000"
-          export KCPPFLAGS="-Wframe-larger-than=20000"
-          
-          echo "Building kernel modules..."
-          make ARCH=arm64 \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CC="$CC" \
-            LD="$LD" \
-            AR="$AR" \
-            NM="$NM" \
-            STRIP="$STRIP" \
-            OBJCOPY="$OBJCOPY" \
-            OBJDUMP="$OBJDUMP" \
-            -j$(nproc) \
-            modules
-          
-          # Install modules
-          make ARCH=arm64 INSTALL_MOD_PATH=../modules_out modules_install
-          find ../modules_out -name "*.ko" -exec $STRIP --strip-debug {} \;
-          
-          # Copy vendor modules if they exist
-          if [ -d "../modules" ]; then
-            echo "Copying vendor modules..."
-            cp -r ../modules/* ../modules_out/ 2>/dev/null || true
-          fi
-          
-          echo "Modules built successfully!"
-          ls -la ../modules_out/lib/modules/*/
-
       - name: Patch Image for KMP (SukiSU only)
         if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
         run: |
@@ -597,7 +537,7 @@ jobs:
           echo "Kernel version: ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}"
           
           # Create boot.img with uncompressed Image
-          $MKBOOTIMG \
+          python3 $MKBOOTIMG \
             --header_version 4 \
             --kernel Image \
             --output boot.img \
@@ -612,7 +552,7 @@ jobs:
             --key $BOOT_SIGN_KEY_PATH
           
           # Create boot-gz.img with gzip compressed Image
-          $MKBOOTIMG \
+          python3 $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.gz \
             --output boot-gz.img \
@@ -627,7 +567,7 @@ jobs:
             --key $BOOT_SIGN_KEY_PATH
           
           # Create boot-lz4.img with lz4 compressed Image
-          $MKBOOTIMG \
+          python3 $MKBOOTIMG \
             --header_version 4 \
             --kernel Image.lz4 \
             --output boot-lz4.img \
@@ -660,22 +600,15 @@ jobs:
           mkdir -p AnyKernel3/dtbs
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
           
-          # Copy modules if built
-          if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then
-            echo "Copying kernel modules to AnyKernel3..."
-            mkdir -p AnyKernel3/modules/system/lib/modules
-            find modules_out -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
-          fi
-          
           # Create AnyKernel3 config
           cat > AnyKernel3/anykernel.sh << 'EOF'
           # AnyKernel3 Ramdisk Mod Script
           # osm0sis @ xda-developers
           
-          properties() { '
+          properties() {
           kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }} - 5.15.${{ env.KERNEL_SUBLEVEL }})
           do.devicecheck=1
-          do.modules=${{ inputs.build_modules && '1' || '0' }}
+          do.modules=0
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
@@ -685,7 +618,7 @@ jobs:
           device.name4=sm8550
           supported.versions=13,14,15
           supported.patchlevels=
-          '; }
+          }
           
           # Shell variables
           block=/dev/block/bootdevice/by-name/boot;
@@ -698,14 +631,6 @@ jobs:
           
           # AnyKernel install
           dump_boot;
-          
-          # Install modules if present
-          if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "$home/modules" ]; then
-            ui_print "- Installing kernel modules...";
-            mount -o rw,remount /system;
-            cp -rf $home/modules/* /;
-            mount -o ro,remount /system;
-          fi;
           
           write_boot;
           EOF

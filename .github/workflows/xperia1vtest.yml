@@ -13,7 +13,7 @@ on:
           - 'android13'
           - 'android14'
           - 'android15'
-        default: 'android15'
+        default: 'android13'
       kernelsu_variant:
         description: 'KernelSU Variant'
         required: true
@@ -23,7 +23,7 @@ on:
           - 'Next'
           - 'MKSU'
           - 'SukiSU'
-        default: 'SukiSU'
+        default: 'Official'
       kernelsu_branch:
         description: 'KernelSU Branch'
         required: true
@@ -72,6 +72,7 @@ jobs:
       KCFLAGS: "-Wframe-larger-than=20000"
       KCPPFLAGS: "-Wframe-larger-than=20000"
 
+    steps:
 
 
       - name: Setup Build Environment
@@ -91,6 +92,24 @@ jobs:
           ccache --max-size=5G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
+          restore-keys: |
+            sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
+      - name: Cache Toolchains
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            kernel-build-tools
+            mkbootimg
+            lineage-clang
+            lineage-gcc-aarch64
+            lineage-gcc-arm
+          key: toolchain-${{ runner.os }}-sony-lineage-v1
 
       - name: Clone Toolchains
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
@@ -370,18 +389,45 @@ jobs:
           # This command deletes all generated files, including .config.
           make ARCH=arm64 mrproper
           
-          # Configure the kernel. The previous 'mrproper' command
-          # deleted the .config file, so it must be re-created here.
+          # The .config file was just deleted by mrproper.
+          # We must re-create it and apply all configs before building.
+          
+          # Configure the kernel
           make ARCH=arm64 gki_defconfig
           
-          # Re-apply KernelSU, SUSFS, and other configurations to the .config file.
-          # These were previously in a separate step but must be here now
-          # since the original .config was deleted.
+          # Add configs to the gki_defconfig
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
           echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
           
-          # Add other configurations you had in the separate 'Configure Kernel' step.
-          # This example adds the ZRAM and other configs from your original workflow.
+          if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
+            echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$CONFIG_FILE"
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
+          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
+            echo "CONFIG_KPM=y" >> "$CONFIG_FILE"
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$CONFIG_FILE"
+          elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
+          fi
+          
+          if [ "${{ inputs.use_susfs }}" = "true" ]; then
+            cat >> "$CONFIG_FILE" << EOF
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          EOF
+          fi
+          
           cat >> "$CONFIG_FILE" << EOF
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
@@ -394,6 +440,10 @@ jobs:
           CONFIG_TCP_CONG_BIC=n
           CONFIG_TCP_CONG_WESTWOOD=n
           CONFIG_TCP_CONG_HTCP=n
+          EOF
+          
+          if [ "${{ inputs.use_zram }}" = "true" ]; then
+            cat >> "$CONFIG_FILE" << EOF
           CONFIG_ZSMALLOC=y
           CONFIG_ZRAM=y
           CONFIG_CRYPTO_LZO=y
@@ -405,12 +455,16 @@ jobs:
           CONFIG_ZRAM_WRITEBACK=y
           CONFIG_ZRAM_DEF_COMP_LZ4KD=y
           EOF
+          fi
           
-          # Re-generate the full .config from the updated gki_defconfig.
+          if [ ! -z "${{ inputs.custom_version }}" ]; then
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$CONFIG_FILE"
+          else
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
+          fi
+          
+          # Run the second make to generate the final .config and other build files
           make ARCH=arm64 gki_defconfig
-          
-          # Re-apply the custom version string.
-          sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-android14\"" "$CONFIG_FILE"
           
           # Set the path to the AOSP clang toolchain (from the llvm-project clone).
           export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
@@ -450,6 +504,7 @@ jobs:
             dtbs
           
           ccache --show-stats
+          
       - name: Build Modules
         if: ${{ inputs.build_modules }}
         run: |
@@ -628,4 +683,4 @@ jobs:
           path: |
             *.img
             *.zip
-            *.cpio
+            *.CPIO

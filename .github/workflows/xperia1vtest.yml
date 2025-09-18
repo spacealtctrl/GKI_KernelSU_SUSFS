@@ -155,10 +155,11 @@ jobs:
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           git clone https://github.com/Tools-cx-app/kernel_patches.git
           git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
-      - name: Copy Device Tree Source Files (via symlink)
+      - name: Clone device trees
         run: |
-          echo "Creating symlink for device tree source files..."
-          ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
+          git clone --depth 1 https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git sm8550-devicetrees || true
+          rm -rf kernel/arch/arm64/boot/dts/vendor || true
+          ln -s ../../../../../sm8550-devicetrees kernel/arch/arm64/boot/dts/vendor || true
       - name: Setup KernelSU
         run: |
           cd kernel

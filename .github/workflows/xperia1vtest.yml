@@ -91,7 +91,6 @@ jobs:
           sudo ln -sf /usr/bin/llvm-objcopy-* /usr/bin/llvm-objcopy 2>/dev/null || true
           sudo ln -sf /usr/bin/llvm-objdump-* /usr/bin/llvm-objdump 2>/dev/null || true
           sudo ln -sf /usr/bin/llvm-strip-* /usr/bin/llvm-strip 2>/dev/null || true
-
       - name: Configure ccache
         run: |
           mkdir -p ~/.ccache
@@ -99,7 +98,6 @@ jobs:
           ccache --max-size=5G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-
       - name: Restore ccache
         uses: actions/cache@v4
         with:
@@ -107,7 +105,6 @@ jobs:
           key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
           restore-keys: |
             sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
-
       - name: Clone Toolchains and Utilities
         run: |
           AOSP_MIRROR=https://android.googlesource.com
@@ -123,7 +120,6 @@ jobs:
           git clone https://github.com/lineageos/avb avb-tools || true
           # Fallback: also clone platform/external/avb to mirror original layout
           git clone https://android.googlesource.com/platform/external/avb tools/avb || true
-
       - name: Set Environment Variables
         run: |
           echo "OUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
@@ -136,17 +132,14 @@ jobs:
           echo "GCC_AARCH64_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
           echo "GCC_ARM_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
           mkdir -p out
-
       - name: Install Python deps for avbtool
         run: |
           pip3 install --user pyOpenSSL cryptography
-
       - name: Setup Boot Signing Key
         run: |
           mkdir -p kernel-build-tools/linux-x86/share/avb || true
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
-
       - name: Clone Kernel and Dependencies
         run: |
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
@@ -161,12 +154,10 @@ jobs:
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu || true
           git clone https://github.com/Tools-cx-app/kernel_patches.git || true
           git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git || true
-
       - name: Setup device trees
         run: |
           rm -rf kernel/arch/arm64/boot/dts/vendor || true
           ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor || true
-
       - name: Setup KernelSU
         run: |
           cd kernel
@@ -212,7 +203,6 @@ jobs:
               exit 1
               ;;
           esac
-
       - name: Apply SUSFS Patches (Android 14 patches for 5.15 kernel)
         if: ${{ inputs.use_susfs }}
         run: |
@@ -243,7 +233,6 @@ jobs:
             echo "SukiSU already has SUSFS support..."
           fi
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
-
       - name: Apply Additional Patches
         run: |
           cd kernel
@@ -262,7 +251,6 @@ jobs:
             cp ../kernel_patches/69_hide_stuff.patch ./ || true
           fi
           patch -p1 -F 3 < 69_hide_stuff.patch || true
-
       - name: Apply ZRAM Optimizations
         if: ${{ inputs.use_zram }}
         run: |
@@ -282,8 +270,7 @@ jobs:
             echo "Applying lz4k_oplus patch for 5.15..."
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
-
-      - name: Build Kernel (mrproper -> defconfig -> build into OUT_DIR)
+      - name: Build Kernel (mrproper -> gki_defconfig (strict) -> build into OUT_DIR with required flags)
         run: |
           set -e
           set -x
@@ -291,13 +278,17 @@ jobs:
           # Ensure OUT_DIR exists and is used for all build artifacts
           export OUT_DIR=$GITHUB_WORKSPACE/out
           mkdir -p "$OUT_DIR"
-          # Clean the source tree first
+          # Clean the source tree first (matches guide strictly)
           make ARCH=arm64 mrproper
-          # Generate gki_defconfig into OUT_DIR
+
+          # The guide requires this exact line (strict): make ARCH=arm64 gki_defconfig
+          make ARCH=arm64 gki_defconfig
+
+          # We also create the gki_defconfig in OUT_DIR and edit it (keeps prior safe behavior)
           make ARCH=arm64 O=$OUT_DIR gki_defconfig
+
           # Edit the defconfig in the OUT_DIR (safe: doesn't touch tree)
           CONFIG_FILE="$OUT_DIR/arch/arm64/configs/gki_defconfig"
-          mkdir -p "$(dirname "$CONFIG_FILE")"
           echo "CONFIG_STACKPROTECTOR_STRONG=y" >> "$CONFIG_FILE"
           echo "CONFIG_CC_HAS_STACKPROTECTOR_NONE=y" >> "$CONFIG_FILE"
           echo "# CONFIG_STACKPROTECTOR_PER_TASK is not set" >> "$CONFIG_FILE"
@@ -314,9 +305,8 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
           fi
-
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
-cat >> "$CONFIG_FILE" <<'EOF'
+            cat >> "$CONFIG_FILE" << EOF
               CONFIG_KSU_SUSFS=y
               CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
               CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -330,11 +320,10 @@ cat >> "$CONFIG_FILE" <<'EOF'
               CONFIG_KSU_SUSFS_SPOOF_UNAME=y
               CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
               CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-EOF
+            EOF
           fi
-
           if [ "${{ inputs.use_zram }}" = "true" ]; then
-cat >> "$CONFIG_FILE" <<'EOF'
+            cat >> "$CONFIG_FILE" << EOF
               CONFIG_ZSMALLOC=y
               CONFIG_ZRAM=y
               CONFIG_CRYPTO_LZO=y
@@ -345,11 +334,12 @@ cat >> "$CONFIG_FILE" <<'EOF'
               CONFIG_CRYPTO_LZ4K_OPLUS=y
               CONFIG_ZRAM_WRITEBACK=y
               CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-EOF
+            EOF
           fi
 
           # Install defconfig into .config for the build
           make ARCH=arm64 O=$OUT_DIR defconfig
+
           # Export toolchains BEFORE make
           export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
           export AOSP_GCC_PATH=$(realpath ../aosp-gcc)
@@ -376,92 +366,40 @@ EOF
           export LLVM_IAS=1
           export KCFLAGS="-Wframe-larger-than=20000 -fno-stack-protector"
           export KCPPFLAGS="-Wframe-larger-than=20000"
-          echo "Building 5.15 kernel for ${{ inputs.android_version }} into O=$OUT_DIR ..."
-          make ARCH=arm64 \
-            O=$OUT_DIR \
-            -j$(nproc --all) \
-            Image \
-            dtbo.img \
-            modules
 
-      - name: Build and Sign Boot Image
+          echo "Building 5.15 kernel for ${{ inputs.android_version }} into O=$OUT_DIR ..."
+
+          # The guide requires this exact-style invocation including the build flags.
+          make ARCH=arm64 CC="ccache clang" HOST_CC="ccache clang" LD="ld.lld" HOST_LD="ld.lld" OBJDUMP="llvm-objdump" OBJCOPY="llvm-objcopy" STRIP="llvm-strip" O="$OUT_DIR" -j$(nproc --all) Image dtbo.img modules
+
+      - name: Build and Sign Boot Image (mkbootimg with os_version/os_patch_level per guide)
         run: |
           set -e
           set -x
 
-          OUT="$GITHUB_WORKSPACE/out"
-          KERNEL_IMG="$OUT/arch/arm64/boot/Image"
-          RAMDISK="$OUT/ramdisk.img"
           BOOT_IMAGE_NAME="boot-${{ inputs.kernelsu_variant }}.img"
-          BOOT_IMAGE_PATH="$OUT/$BOOT_IMAGE_NAME"
 
-          AVB_TOOL="$GITHUB_WORKSPACE/tools/avb/avbtool.py"
-          if [ ! -f "$AVB_TOOL" ]; then
-            echo "avbtool not found at $AVB_TOOL"
-            ls -la "$GITHUB_WORKSPACE/tools" || true
-            exit 1
-          fi
+          # Create a placeholder ramdisk path: if you produce a ramdisk elsewhere, set this variable accordingly.
+          RAMDISK="$GITHUB_WORKSPACE/out/ramdisk.img"
+          # The guide strictly requires:
+          # tools/mkbootimg/mkbootimg.py --header_version 4 --kernel Image --output /path/to/boot.img --ramdisk /path/to/ramdisk --os_version 15.0.0 --os_patch_level <security_patch_level>
+          # We follow that strictly, filling values from the environment.
+          python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
+            --header_version 4 \
+            --kernel "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" \
+            --output "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME" \
+            --ramdisk "$RAMDISK" \
+            --os_version 15.0.0 \
+            --os_patch_level "${ANDROID_SECURITY_PATCH}"
 
-          case "${{ inputs.android_version }}" in
-            "android13")
-              OS_VER="13.0.0"
-              OS_PATCH="${ANDROID_SECURITY_PATCH:-2025-08}"
-              INCLUDE_RAMDISK=true
-              ;;
-            "android14")
-              OS_VER="14.0.0"
-              OS_PATCH="${ANDROID_SECURITY_PATCH:-2025-08}"
-              INCLUDE_RAMDISK=true
-              ;;
-            "android15")
-              OS_VER="15.0.0"
-              OS_PATCH="${ANDROID_SECURITY_PATCH:-2025-08}"
-              INCLUDE_RAMDISK=false
-              ;;
-            *)
-              OS_VER=""
-              OS_PATCH=""
-              INCLUDE_RAMDISK=false
-              ;;
-          esac
-
-          if [ "$INCLUDE_RAMDISK" = "true" ]; then
-            if [ ! -f "$RAMDISK" ]; then
-              echo "Creating minimal ramdisk at $RAMDISK"
-              mkdir -p "$OUT/ramdisk-root"
-              (cd "$OUT/ramdisk-root" && mkdir -p sbin etc) || true
-              (cd "$OUT/ramdisk-root" && find . | cpio -o -H newc > "$RAMDISK") || true
-            fi
-          fi
-
-          if [ "$INCLUDE_RAMDISK" = "true" ]; then
-            python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
-              --header_version 4 \
-              --kernel "$KERNEL_IMG" \
-              --ramdisk "$RAMDISK" \
-              --output "$BOOT_IMAGE_PATH" \
-              --os_version "$OS_VER" \
-              --os_patch_level "$OS_PATCH"
-          else
-            python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
-              --header_version 4 \
-              --kernel "$KERNEL_IMG" \
-              --output "$BOOT_IMAGE_PATH"
-          fi
-
-          BOOT_SIGN_KEY="${BOOT_SIGN_KEY_PATH:-$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem}"
-          if [ ! -f "$BOOT_SIGN_KEY" ]; then
-            echo "Boot signing key not found at $BOOT_SIGN_KEY"
-            exit 1
-          fi
-
-          python3 "$AVB_TOOL" add_hash_footer \
+          # Add hash footer and sign the boot image with avbtool (matches guide)
+          python3 "$GITHUB_WORKSPACE/tools/avb/avbtool.py" \
+            add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
-            --image "$BOOT_IMAGE_PATH" \
+            --image "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME" \
             --algorithm SHA256_RSA2048 \
-            --key "$BOOT_SIGN_KEY"
-
+            --key "$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

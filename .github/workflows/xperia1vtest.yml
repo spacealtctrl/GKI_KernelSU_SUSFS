@@ -1,7 +1,9 @@
 name: Sony SM8550 GKI-Style Kernel Build (patched)
+
 permissions:
   contents: write
   actions: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -51,6 +53,7 @@ on:
         description: 'Custom version string (optional)'
         required: false
         type: string
+
 jobs:
   build-sony-kernel:
     runs-on: ubuntu-latest
@@ -318,35 +321,35 @@ jobs:
 
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-EOF
+              CONFIG_KSU_SUSFS=y
+              CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+              CONFIG_KSU_SUSFS_SUS_PATH=y
+              CONFIG_KSU_SUSFS_SUS_MOUNT=y
+              CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+              CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+              CONFIG_KSU_SUSFS_SUS_KSTAT=y
+              CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+              CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+              CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+              CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+              CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+            EOF
           fi
 
           if [ "${{ inputs.use_zram }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
-CONFIG_ZSMALLOC=y
-CONFIG_ZRAM=y
-CONFIG_CRYPTO_LZO=y
-CONFIG_CRYPTO_LZ4HC=y
-CONFIG_CRYPTO_LZ4K=y
-CONFIG_CRYPTO_LZ4KD=y
-CONFIG_CRYPTO_842=y
-CONFIG_CRYPTO_LZ4K_OPLUS=y
-CONFIG_ZRAM_WRITEBACK=y
-CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-EOF
+              CONFIG_ZSMALLOC=y
+              CONFIG_ZRAM=y
+              CONFIG_CRYPTO_LZO=y
+              CONFIG_CRYPTO_LZ4HC=y
+              CONFIG_CRYPTO_LZ4K=y
+              CONFIG_CRYPTO_LZ4KD=y
+              CONFIG_CRYPTO_842=y
+              CONFIG_CRYPTO_LZ4K_OPLUS=y
+              CONFIG_ZRAM_WRITEBACK=y
+              CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+            EOF
           fi
 
           # Install defconfig into .config for the build
@@ -386,221 +389,34 @@ EOF
           echo "Building 5.15 kernel for ${{ inputs.android_version }} into O=$OUT_DIR ..."
           make ARCH=arm64 \
             O=$OUT_DIR \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
-            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT \
-            CLANG_TRIPLE=$CLANG_TRIPLE \
-            CC="$CC" \
-            LD="$LD" \
-            AR="$AR" \
-            NM="$NM" \
-            STRIP="$STRIP" \
-            OBJCOPY="$OBJCOPY" \
-            OBJDUMP="$OBJDUMP" \
-            READELF="$READELF" \
-            -j$(nproc) \
+            -j$(nproc --all) \
             Image \
-            Image.gz \
-            dtbs
+            dtbo.img \
+            modules
 
-          echo "Kernel build completed!"
-          ls -la $OUT_DIR/arch/arm64/boot/
-          ccache --show-stats
-
-      - name: Patch Image for KMP (SukiSU only)
-        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
+      - name: Build Boot Image
         run: |
-          cd kernel/arch/arm64/boot
-          echo "Patching Image file for KMP..."
-          chmod +x ../../../../SukiSU_patch/kmp/patch_linux
-          ../../../../SukiSU_patch/kmp/patch_linux || true
-          # patch_linux typically outputs an oImage — move into place
-          if [ -f oImage ]; then
-            mv -f oImage Image || true
+          set -e
+          set -x
+          cd kernel
+          KERNEL_VERSION_SHORT="5.15"
+          KERNEL_SOURCE_PATH="$GITHUB_WORKSPACE/kernel"
+          ANYKERNEL_PATH="$GITHUB_WORKSPACE/AnyKernel3"
+          OUT_PATH="$GITHUB_WORKSPACE/out"
+          KERNEL_IMAGE_PATH="$OUT_PATH/arch/arm64/boot/Image"
+          DTBO_IMAGE_PATH="$OUT_PATH/arch/arm64/boot/dtbo.img"
+          RAMDISK_IMAGE_PATH="$KERNEL_SOURCE_PATH/ramdisk-recovery.img"
+          if [ ! -f "$RAMDISK_IMAGE_PATH" ]; then
+            echo "Ramdisk file not found. Skipping boot image creation."
+            exit 0
           fi
-          gzip -n -k -f -9 ./Image > ./Image.gz || true
+          cp "$KERNEL_IMAGE_PATH" "$ANYKERNEL_PATH/" || true
+          cp "$DTBO_IMAGE_PATH" "$ANYKERNEL_PATH/" || true
+          cd "$ANYKERNEL_PATH"
+          zip -9 -r "SM8550-GKI-Kernel-${{ inputs.kernelsu_variant }}-${{ inputs.android_version }}-${{ inputs.custom_version }}-${{ env.KERNEL_VERSION }}-${{ env.KERNEL_SUBLEVEL }}.zip" * -x .git README.md || true
 
-      - name: Create Boot Images Directory and Copy Files
-        run: |
-          echo "Creating bootimgs directory..."
-          mkdir -p bootimgs
-          OUT_DIR=$GITHUB_WORKSPACE/out
-          # Prefer the built artifacts from OUT_DIR
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image" bootimgs/ || true
-          fi
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.gz" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image.gz" bootimgs/ || true
-          else
-            gzip -n -k -f -9 "$OUT_DIR/arch/arm64/boot/Image" && cp "$OUT_DIR/arch/arm64/boot/Image.gz" bootimgs/ || true
-          fi
-          if [ -f "$OUT_DIR/arch/arm64/boot/Image.lz4" ]; then
-            cp "$OUT_DIR/arch/arm64/boot/Image.lz4" bootimgs/ || true
-          else
-            lz4 -f -12 --favor-decSpeed "$OUT_DIR/arch/arm64/boot/Image" bootimgs/Image.lz4 || true
-          fi
-          # Copy to repository root for artifacts
-          cp bootimgs/Image ./ || true
-          cp bootimgs/Image.gz ./ || true
-          cp bootimgs/Image.lz4 ./ || true
-          echo "Boot images prepared successfully!"
-          ls -la bootimgs/
-
-      - name: Create Boot Images
-        run: |
-          cd bootimgs
-          echo "Building boot images for ${{ inputs.android_version }}..."
-          case "${{ inputs.android_version }}" in
-            "android13")
-              OS_VERSION="13.0.0"
-              echo "Building for Android 13 with 5.15 kernel"
-              ;;
-            "android14")
-              OS_VERSION="14.0.0"
-              echo "Building for Android 14 with 5.15 kernel"
-              ;;
-            "android15")
-              OS_VERSION="15.0.0"
-              echo "Building for Android 15 with 5.15 kernel (LineageOS 22.2)"
-              ;;
-            *)
-              OS_VERSION="15.0.0"
-              echo "Default: Android 15 with 5.15 kernel"
-              ;;
-          esac
-
-          echo "Using OS version: $OS_VERSION"
-          echo "Using Android security patch: $ANDROID_SECURITY_PATCH"
-          echo "Kernel version: ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}"
-
-          # Prepare an empty ramdisk for new mkbootimg (mkbootimg.py accepts a dir)
-          mkdir -p empty-ramdisk
-          touch empty-ramdisk/placeholder
-
-          # Use the MKBOOTIMG and AVBTOOL variables set earlier
-          AVB_TOOL="${AVBTOOL:-../tools/avb/avbtool.py}"
-
-          # Create boot.img with uncompressed Image (header version 4)
-          python3 $MKBOOTIMG \
-            --header_version 4 \
-            --kernel Image \
-            --output boot.img \
-            --ramdisk empty-ramdisk \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
-
-          python3 $AVB_TOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot.img \
-            --algorithm SHA256_RSA2048 \
-            --key "$BOOT_SIGN_KEY_PATH"
-
-          # Create boot-gz.img with gzip compressed Image
-          python3 $MKBOOTIMG \
-            --header_version 4 \
-            --kernel Image.gz \
-            --output boot-gz.img \
-            --ramdisk empty-ramdisk \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
-
-          python3 $AVB_TOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-gz.img \
-            --algorithm SHA256_RSA2048 \
-            --key "$BOOT_SIGN_KEY_PATH"
-
-          # Create boot-lz4.img with lz4 compressed Image
-          python3 $MKBOOTIMG \
-            --header_version 4 \
-            --kernel Image.lz4 \
-            --output boot-lz4.img \
-            --ramdisk empty-ramdisk \
-            --os_version "$OS_VERSION" \
-            --os_patch_level "$ANDROID_SECURITY_PATCH"
-
-          python3 $AVB_TOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-lz4.img \
-            --algorithm SHA256_RSA2048 \
-            --key "$BOOT_SIGN_KEY_PATH"
-
-          # Copy to root with descriptive names
-          cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img" || true
-          cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img" || true
-          cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img" || true
-          echo "Boot images created successfully!"
-          ls -la *.img
-
-      - name: Package with AnyKernel3
-        run: |
-          # Copy kernel images into AnyKernel3
-          cp bootimgs/Image AnyKernel3/ || true
-          cp bootimgs/Image.gz AnyKernel3/ || true
-          cp bootimgs/Image.lz4 AnyKernel3/ || true
-
-          # Copy device tree blobs
-          mkdir -p AnyKernel3/dtbs
-          find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
-
-          # Create AnyKernel3 config (unquoted heredoc so variables expand)
-          cat > AnyKernel3/anykernel.sh << EOF
-# AnyKernel3 Ramdisk Mod Script
-# osm0sis @ xda-developers
-properties() {
-kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }} - 5.15.${{ env.KERNEL_SUBLEVEL }})
-do.devicecheck=1
-do.modules=0
-do.systemless=1
-do.cleanup=1
-do.cleanuponabort=0
-device.name1=pdx234
-device.name2=pdx237
-device.name3=yodo
-device.name4=sm8550
-supported.versions=13,14,15
-supported.patchlevels=
-}
-# Shell variables
-block=/dev/block/bootdevice/by-name/boot;
-is_slot_device=1;
-ramdisk_compression=auto;
-patch_vbmeta_flag=auto;
-# Import functions/variables and setup patching
-. tools/ak3-core.sh;
-# AnyKernel install
-dump_boot;
-write_boot;
-EOF
-
-          cd AnyKernel3
-          # Create uncompressed Image zip
-          ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
-          zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4 || true
-          rm -f Image || true
-
-          # Create gzip Image zip
-          cp ../bootimgs/Image.gz ./ || true
-          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
-          zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4 || true
-          rm -f Image.gz || true
-
-          # Create lz4 Image zip
-          cp ../bootimgs/Image.lz4 ./ || true
-          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
-          zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz || true
-          echo "AnyKernel3 packages created successfully!"
-
-      - name: Upload Build Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Sony-SM8550-Kernel-${{ inputs.android_version }}-${{ github.run_id }}
-          path: |
-            *.img
-            *.zip
-          retention-days: 30
+          name: SM8550-GKI-Kernel-
+          path: AnyKernel3/SM8550-GKI-Kernel-${{ inputs.kernelsu_variant }}-${{ inputs.android_version }}-${{ inputs.custom_version }}-${{ env.KERNEL_VERSION }}-${{ env.KERNEL_SUBLEVEL }}.zip

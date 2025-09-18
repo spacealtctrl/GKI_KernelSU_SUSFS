@@ -505,7 +505,7 @@ jobs:
           curl -LO https://mirrorbits.lineageos.org/full/pdx234/20250914/init_boot.img
           mkdir init_boot_unpacked
           cd init_boot_unpacked
-          python3 "$UNPACK_BOOTIMG" --boot_img ../init_boot.img
+          python3 "$UNPACK_BOOTIMG" --boot_img ../init_boot.img --out .
           mkdir -p ramdisk_contents
           cd ramdisk_contents
           cat ../ramdisk | cpio -idmv

@@ -125,25 +125,43 @@ jobs:
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
           
-          # Clone LineageOS specific toolchains
+          # Clone the specific AOSP clang toolchain required by the README.
+          git clone $AOSP_MIRROR/toolchain/prebuilts/clang/host/linux-x86 \
+            -b $BRANCH --depth 1 aosp-clang
+          
+          git clone $AOSP_MIRROR/toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+            -b $BRANCH --depth 1 aosp-gcc-aarch64
+          
+          git clone $AOSP_MIRROR/toolchain/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
+            -b $BRANCH --depth 1 aosp-gcc-arm
+            
+          # Clone LineageOS specific toolchains (keeping them for potential cross-compilation).
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b \
-            -b lineage-20.0 --depth=1 lineage-clang || true
+            -b lineage-20.0 --depth=1 lineage-clang || true 
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-arm || true
-            
+
+          # Clone other AOSP tools.
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools 
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+
       - name: Set Environment Variables
         run: |
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
-          echo "CLANG_PATH=$GITHUB_WORKSPACE/lineage-clang/bin" >> $GITHUB_ENV
+          
+          # Set the path for the AOSP Clang toolchain.
+          export AOSP_CLANG_PATH=$(find $(pwd)/aosp-clang -name "clang-*" -type d)
+          echo "CLANG_PATH=$AOSP_CLANG_PATH" >> $GITHUB_ENV
+          
+          # Use the LineageOS GCC toolchains for cross-compilation.
           echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
           echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
+          
       - name: Setup Boot Signing Key
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
@@ -372,16 +390,26 @@ jobs:
           fi
           perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
           sed -i 's/-dirty//' ./scripts/setlocalversion
-      - name: Build Kernel
+      - name: Clean and Build Kernel with AOSP Toolchain
         run: |
           set -e
           set -x
           cd kernel
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH=$CLANG_PATH:$GCC_AARCH64_PATH:$GCC_ARM_PATH:$PATH
-          export CROSS_COMPILE=$GCC_AARCH64_PATH/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$GCC_ARM_PATH/arm-linux-androideabi-
+          
+          # Set the path to the AOSP clang toolchain and the LineageOS GCC toolchains.
+          export AOSP_CLANG_PATH=$(find $(pwd)/../aosp-clang -name "clang-*" -type d)
+          export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
+          export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
+          
+          # Set the PATH variable.
+          export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
+          
+          # Set the necessary environment variables for the kernel build.
+          export KBUILD_BUILD_USER=github
+          export KBUILD_BUILD_HOST=actions
+          export CLANG_PATH=$AOSP_CLANG_PATH
+          export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
           export CC="ccache clang"
           export CXX="ccache clang++"
           export LD=ld.lld
@@ -390,27 +418,37 @@ jobs:
           export OBJCOPY=llvm-objcopy
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
-          export KCFLAGS="-Wframe-larger-than=9999"
-          export KCPPFLAGS="-Wframe-larger-than=9999"
-          echo "Building kernel with increased stack frame size limit (9999 bytes)..."
+          export KCFLAGS="-Wframe-larger-than=20000"
+          export KCPPFLAGS="-Wframe-larger-than=20000"
+          export LLVM=1
+          export LLVM_IAS=1
+          
+          # Run make clean to ensure a fresh build.
+          make O=out ARCH=arm64 clean
+          
+          echo "Building kernel with the required AOSP Clang toolchain and LineageOS GCC..."
           make -j$(nproc) \
+            O=out \
             ARCH=arm64 \
-            CC="ccache clang" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="-Wframe-larger-than=20000" \
-            KCPPFLAGS="-Wframe-larger-than=20000" \
-            Image Image.gz dtbs
+            Image \
+            Image.gz \
+            dtbs
+          
           ccache --show-stats
           
       - name: Build Modules
         if: ${{ inputs.build_modules }}
         run: |
           cd kernel
-          export ARCH=arm64
-          export PATH=$CLANG_PATH:$GCC_AARCH64_PATH:$GCC_ARM_PATH:$PATH
-          export CROSS_COMPILE=$GCC_AARCH64_PATH/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$GCC_ARM_PATH/arm-linux-androideabi-
+          export AOSP_CLANG_PATH=$(find $(pwd)/../aosp-clang -name "clang-*" -type d)
+          export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
+          export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
+          
+          export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
+          
+          export CLANG_PATH=$AOSP_CLANG_PATH
+          export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
           export CC="ccache clang"
           export CXX="ccache clang++"
           export LD=ld.lld
@@ -423,14 +461,11 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-Wframe-larger-than=20000"
           export KCPPFLAGS="-Wframe-larger-than=20000"
+
           echo "Building kernel modules..."
           make -j$(nproc) \
+            O=out \
             ARCH=arm64 \
-            CC="ccache clang" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="-Wframe-larger-than=20000" \
-            KCPPFLAGS="-Wframe-larger-than=20000" \
             modules
           make INSTALL_MOD_PATH=../modules_out modules_install
           find ../modules_out -name "*.ko" -exec $STRIP --strip-debug {} \;

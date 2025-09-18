@@ -308,6 +308,11 @@ jobs:
           
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
           
+          # Fix stack protector issues with LLVM
+          echo "CONFIG_STACKPROTECTOR_STRONG=y" >> "$CONFIG_FILE"
+          echo "CONFIG_CC_HAS_STACKPROTECTOR_NONE=y" >> "$CONFIG_FILE"
+          echo "# CONFIG_STACKPROTECTOR_PER_TASK is not set" >> "$CONFIG_FILE"
+          
           # Disable problematic BPF tools
           echo "# CONFIG_DEBUG_INFO_BTF is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_BPF_LSM is not set" >> "$CONFIG_FILE"
@@ -426,6 +431,7 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
           export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
+          export CROSS_COMPILE_COMPAT=$GCC_DIR_ARM/bin/arm-linux-androideabi-
           
           # Build environment
           export KBUILD_BUILD_USER=github
@@ -440,11 +446,12 @@ jobs:
           export OBJCOPY=llvm-objcopy
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
+          export READELF=llvm-readelf
           export LLVM=1
           export LLVM_IAS=1
           
           # Build flags for stability
-          export KCFLAGS="-Wframe-larger-than=20000"
+          export KCFLAGS="-Wframe-larger-than=20000 -fno-stack-protector"
           export KCPPFLAGS="-Wframe-larger-than=20000"
           
           echo "Building 5.15 kernel for ${{ inputs.android_version }}..."
@@ -453,6 +460,7 @@ jobs:
             LLVM_IAS=1 \
             CROSS_COMPILE=$CROSS_COMPILE \
             CROSS_COMPILE_ARM32=$CROSS_COMPILE_ARM32 \
+            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_COMPAT \
             CLANG_TRIPLE=$CLANG_TRIPLE \
             CC="$CC" \
             LD="$LD" \
@@ -461,6 +469,7 @@ jobs:
             STRIP="$STRIP" \
             OBJCOPY="$OBJCOPY" \
             OBJDUMP="$OBJDUMP" \
+            READELF="$READELF" \
             -j$(nproc) \
             Image \
             Image.gz \

@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       KERNEL_VERSION: "5.15"
-      KERNEL_SUBLEVEL: "185"
+      KERNEL_SUBLEVEL: "176"
       ANDROID_SECURITY_PATCH: "2025-08"
       VENDOR_SECURITY_PATCH: "2025-04"
       CONFIG: "sony-sm8550-5.15"

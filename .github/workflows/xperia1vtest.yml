@@ -10,10 +10,10 @@ on:
         required: true
         type: choice
         options:
-          - 'android13'
-          - 'android14'
           - 'android15'
-        default: 'android14'
+          - 'android14'
+          - 'android13'
+        default: 'android15'
       kernelsu_variant:
         description: 'KernelSU Variant'
         required: true
@@ -71,6 +71,8 @@ jobs:
       CCACHE_HARDLINK: "true"
       KCFLAGS: "-Wframe-larger-than=20000"
       KCPPFLAGS: "-Wframe-larger-than=20000"
+      # IMPORTANT: Use Android 14 patches for 5.15 kernel regardless of Android version
+      SUSFS_KERNEL_VERSION: "android14-5.15"
 
     steps:
       - name: Setup Build Environment
@@ -138,6 +140,7 @@ jobs:
 
       - name: Clone Kernel and Dependencies
         run: |
+          # Clone LineageOS 22.2 kernel (Android 15 with 5.15 kernel)
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
             -b lineage-22.2 --depth=1 kernel
           
@@ -151,11 +154,13 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 devicetrees
           
+          # AnyKernel3 for GKI 2.0
           ANYKERNEL_BRANCH="gki-2.0"
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
           
+          # IMPORTANT: Use android14-5.15 branch for SUSFS because kernel is 5.15
           SUSFS_BRANCH="gki-android14-5.15"
-          echo "Using SUSFS branch: $SUSFS_BRANCH"
+          echo "Using SUSFS branch: $SUSFS_BRANCH (for 5.15 kernel)"
           git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
           
           git clone https://github.com/Tools-cx-app/kernel_patches.git
@@ -169,6 +174,8 @@ jobs:
       - name: Setup KernelSU
         run: |
           cd kernel
+          
+          # Determine branch based on user selection
           case "${{ inputs.kernelsu_branch }}" in
             "Stable(标准)")
               BRANCH="-s susfs-main"
@@ -190,6 +197,7 @@ jobs:
               ;;
           esac
           
+          # Apply KernelSU based on variant
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
               echo "Adding Official KernelSU..."
@@ -213,15 +221,18 @@ jobs:
               ;;
           esac
 
-      - name: Apply SUSFS Patches
+      - name: Apply SUSFS Patches (Android 14 patches for 5.15 kernel)
         if: ${{ inputs.use_susfs }}
         run: |
           cd kernel
-          echo "Applying SUSFS patches for gki-android14-5.15"
+          echo "Applying SUSFS patches for gki-android14-5.15 (5.15 kernel regardless of Android version)"
+          
+          # Copy SUSFS patches - using android14-5.15 branch
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ./
           cp ../susfs4ksu/kernel_patches/fs/* ./fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
           
+          # Apply variant-specific SUSFS patches
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
             cd ./KernelSU
@@ -229,8 +240,7 @@ jobs:
             patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
             cd ..
           elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
-            echo "Applying SUSFS patches for KernelSU-Next..."
-            # KernelSU-Next already has SUSFS support
+            echo "KernelSU-Next already has SUSFS support..."
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "Applying SUSFS patches for MKSU..."
             cd ./KernelSU
@@ -242,21 +252,22 @@ jobs:
             patch -p1 < fix.patch || true
             cd ..
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            echo "Applying SUSFS patches for SukiSU..."
-            # SukiSU already has SUSFS support
+            echo "SukiSU already has SUSFS support..."
           fi
           
+          # Apply main SUSFS patch
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
           
-          if [ $KERNEL_SUBLEVEL -lt 123 ]; then
-            echo 'Applying 5.15 legacy fix...'
-            curl -LSs https://github.com/zzh20188/GKI_KernelSU_SUSFS/raw/refs/heads/legacy/fix_5.15.legacy -o fix_5.15.legacy.patch
-            patch -p1 < fix_5.15.legacy.patch || true
+          # Apply legacy fix if needed (kernel sublevel < 123)
+          if [ ${{ env.KERNEL_SUBLEVEL }} -lt 123 ]; then
+            echo 'Kernel sublevel is less than 123, but we are at 176, skipping legacy fix...'
           fi
 
       - name: Apply Additional Patches
         run: |
           cd kernel
+          
+          # Apply variant-specific hooks
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Applying hooks for KernelSU-Next..."
             cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
@@ -267,6 +278,7 @@ jobs:
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
           
+          # Apply hide stuff patch
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             cp ../SukiSU_patch/69_hide_stuff.patch ./
           else
@@ -278,20 +290,23 @@ jobs:
         if: ${{ inputs.use_zram }}
         run: |
           cd kernel
+          echo "Applying ZRAM optimizations for 5.15 kernel..."
+          
           cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
           cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
           cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
           cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
           
-          if [ -f "../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
-            echo "Applying lz4kd patch..."
+          # Apply 5.15 specific ZRAM patches
+          if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch" ]; then
+            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch ./
+            echo "Applying lz4kd patch for 5.15..."
             patch -p1 -F 3 < lz4kd.patch || true
           fi
           
-          if [ -f "../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4k_oplus.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4k_oplus.patch ./
-            echo "Applying lz4k_oplus patch..."
+          if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch" ]; then
+            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch ./
+            echo "Applying lz4k_oplus patch for 5.15..."
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
 
@@ -305,8 +320,10 @@ jobs:
           # Add our configurations
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
           
+          # KernelSU base config
           echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
           
+          # Variant-specific KernelSU configs
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$CONFIG_FILE"
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
@@ -318,6 +335,7 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
           fi
           
+          # SUSFS configs
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
           CONFIG_KSU_SUSFS=y
@@ -336,6 +354,7 @@ jobs:
           EOF
           fi
           
+          # Network and general optimizations
           cat >> "$CONFIG_FILE" << EOF
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
@@ -350,6 +369,7 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           EOF
           
+          # ZRAM configs
           if [ "${{ inputs.use_zram }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
           CONFIG_ZSMALLOC=y
@@ -365,6 +385,7 @@ jobs:
           EOF
           fi
           
+          # Version string
           if [ ! -z "${{ inputs.custom_version }}" ]; then
             sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$CONFIG_FILE"
           else
@@ -431,7 +452,7 @@ jobs:
           export KCFLAGS="-Wframe-larger-than=20000"
           export KCPPFLAGS="-Wframe-larger-than=20000"
           
-          echo "Building kernel with AOSP Clang toolchain..."
+          echo "Building 5.15 kernel for ${{ inputs.android_version }}..."
           make ARCH=arm64 \
             LLVM=1 \
             CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android- \
@@ -532,15 +553,30 @@ jobs:
           cd bootimgs
           echo "Building boot images for ${{ inputs.android_version }}..."
           
+          # Set OS version based on Android version
+          # IMPORTANT: Use actual Android version for boot image, not kernel version
           case "${{ inputs.android_version }}" in
-            "android13") OS_VERSION="13.0.0" ;;
-            "android14") OS_VERSION="14.0.0" ;;
-            "android15") OS_VERSION="15.0.0" ;;
-            *) OS_VERSION="14.0.0" ;;
+            "android13") 
+              OS_VERSION="13.0.0"
+              echo "Building for Android 13 with 5.15 kernel"
+              ;;
+            "android14") 
+              OS_VERSION="14.0.0"
+              echo "Building for Android 14 with 5.15 kernel"
+              ;;
+            "android15") 
+              OS_VERSION="15.0.0"
+              echo "Building for Android 15 with 5.15 kernel (LineageOS 22.2)"
+              ;;
+            *) 
+              OS_VERSION="15.0.0"
+              echo "Default: Android 15 with 5.15 kernel"
+              ;;
           esac
           
           echo "Using OS version: $OS_VERSION"
           echo "Using Android security patch: $ANDROID_SECURITY_PATCH"
+          echo "Kernel version: ${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}"
           
           # Create boot.img with uncompressed Image
           $MKBOOTIMG \
@@ -619,7 +655,7 @@ jobs:
           # osm0sis @ xda-developers
           
           properties() { '
-          kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }})
+          kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }} - 5.15.${{ env.KERNEL_SUBLEVEL }})
           do.devicecheck=1
           do.modules=${{ inputs.build_modules && '1' || '0' }}
           do.systemless=1

@@ -112,10 +112,8 @@ jobs:
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           
-          git clone $AOSP_MIRROR/toolchain/llvm-project aosp-clang
-          cd aosp-clang
-          git checkout b3a530ec6537146650e42be89f1089e9a3588460
-          cd ..
+          # This is the correct prebuilt clang for main-kernel-build-2024
+          git clone $AOSP_MIRROR/kernel/prebuilts/clang/host/linux-x86 -b main-kernel-build-2024 --depth=1 aosp-clang
           
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
@@ -133,11 +131,12 @@ jobs:
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
-          AOSP_CLANG_PATH=$(pwd)/aosp-clang
-          echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
+          # Fix the path to point to the correct prebuilt clang bin directory
+          echo "CLANG_PATH=$GITHUB_WORKSPACE/aosp-clang/clang-r498229/bin" >> $GITHUB_ENV
           
           echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
           echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
+          
 
       - name: Setup Boot Signing Key
         run: |

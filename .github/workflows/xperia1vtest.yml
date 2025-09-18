@@ -394,26 +394,27 @@ jobs:
             dtbo.img \
             modules
 
-      - name: Build Boot Image
+      - name: Build and Sign Boot Image
         run: |
           set -e
           set -x
-          cd kernel
-          KERNEL_VERSION_SHORT="5.15"
-          KERNEL_SOURCE_PATH="$GITHUB_WORKSPACE/kernel"
-          ANYKERNEL_PATH="$GITHUB_WORKSPACE/AnyKernel3"
-          OUT_PATH="$GITHUB_WORKSPACE/out"
-          KERNEL_IMAGE_PATH="$OUT_PATH/arch/arm64/boot/Image"
-          DTBO_IMAGE_PATH="$OUT_PATH/arch/arm64/boot/dtbo.img"
-          RAMDISK_IMAGE_PATH="$KERNEL_SOURCE_PATH/ramdisk-recovery.img"
-          if [ ! -f "$RAMDISK_IMAGE_PATH" ]; then
-            echo "Ramdisk file not found. Skipping boot image creation."
-            exit 0
-          fi
-          cp "$KERNEL_IMAGE_PATH" "$ANYKERNEL_PATH/" || true
-          cp "$DTBO_IMAGE_PATH" "$ANYKERNEL_PATH/" || true
-          cd "$ANYKERNEL_PATH"
-          zip -9 -r "SM8550-GKI-Kernel-${{ inputs.kernelsu_variant }}-${{ inputs.android_version }}-${{ inputs.custom_version }}-${{ env.KERNEL_VERSION }}-${{ env.KERNEL_SUBLEVEL }}.zip" * -x .git README.md || true
+          
+          BOOT_IMAGE_NAME="boot-${{ inputs.kernelsu_variant }}.img"
+
+          # Create the boot image using mkbootimg
+          python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
+            --header_version 4 \
+            --kernel "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" \
+            --output "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME"
+
+          # Add hash footer and sign the boot image with avbtool
+          python3 "$GITHUB_WORKSPACE/tools/avb/avbtool.py" \
+            add_hash_footer \
+            --partition_name boot \
+            --partition_size $((64 * 1024 * 1024)) \
+            --image "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME" \
+            --algorithm SHA256_RSA2048 \
+            --key "$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

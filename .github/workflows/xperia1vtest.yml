@@ -112,18 +112,16 @@ jobs:
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           
-          # This is the correct prebuilt clang for main-kernel-build-2024
-          git clone $AOSP_MIRROR/kernel/prebuilts/clang/host/linux-x86 -b main-kernel-build-2024 --depth=1 aosp-clang
+          # Use specific release tags for stable toolchains
+          git clone $AOSP_MIRROR/toolchain/llvm-project aosp-clang --depth=1
+          cd aosp-clang
+          git checkout 20240409 # Example LLVM release
+          cd ..
           
-          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
-            -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
-          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
-            -b lineage-19.1 --depth=1 lineage-gcc-arm || true
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools/linux-x86/main/aarch64-linux-android-4.9 --depth=1 aosp-gcc
           
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools \
-            -b main-kernel-build-2024 --depth 1 kernel-build-tools
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg \
-            -b main-kernel-build-2024 --depth 1 mkbootimg
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg --depth 1 mkbootimg
 
       - name: Set Environment Variables
         run: |
@@ -131,12 +129,12 @@ jobs:
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
-          # Fix the path to point to the correct prebuilt clang bin directory
-          echo "CLANG_PATH=$GITHUB_WORKSPACE/aosp-clang/clang-r498229/bin" >> $GITHUB_ENV
+          AOSP_CLANG_PATH=$(pwd)/aosp-clang
+          AOSP_GCC_PATH=$(pwd)/aosp-gcc
+          echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
           
-          echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
-          echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
-          
+          echo "GCC_AARCH64_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
+          echo "GCC_ARM_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
 
       - name: Setup Boot Signing Key
         run: |
@@ -411,11 +409,10 @@ jobs:
           
           # Set up toolchain paths - MUST be exported BEFORE make
           export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
-          export GCC_DIR_AARCH64=$(realpath ../lineage-gcc-aarch64)
-          export GCC_DIR_ARM=$(realpath ../lineage-gcc-arm)
+          export AOSP_GCC_PATH=$(realpath ../aosp-gcc)
           
           # Add ALL toolchain paths to PATH
-          export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
+          export PATH=$AOSP_CLANG_PATH/bin:$AOSP_GCC_PATH/bin:$PATH
           export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib:$LD_LIBRARY_PATH
           
           # Verify llvm-ar is available
@@ -423,9 +420,9 @@ jobs:
           
           # Set up cross compile
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi-
-          export CROSS_COMPILE_COMPAT=$GCC_DIR_ARM/bin/arm-linux-androideabi-
+          export CROSS_COMPILE=$AOSP_GCC_PATH/bin/aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=$AOSP_GCC_PATH/bin/arm-linux-androideabi-
+          export CROSS_COMPILE_COMPAT=$AOSP_GCC_PATH/bin/arm-linux-androideabi-
           
           # Build environment
           export KBUILD_BUILD_USER=github

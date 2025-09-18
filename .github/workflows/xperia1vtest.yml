@@ -13,7 +13,7 @@ on:
           - 'android13'
           - 'android14'
           - 'android15'
-        default: 'android13'
+        default: 'android15'
       kernelsu_variant:
         description: 'KernelSU Variant'
         required: true
@@ -23,7 +23,7 @@ on:
           - 'Next'
           - 'MKSU'
           - 'SukiSU'
-        default: 'Official'
+        default: 'SukiSU'
       kernelsu_branch:
         description: 'KernelSU Branch'
         required: true
@@ -124,29 +124,22 @@ jobs:
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           AOSP_MIRROR=https://android.googlesource.com
-          BRANCH=main-kernel-build-2024
           
-          # Clone the specific AOSP clang toolchain required by the README.
-          git clone $AOSP_MIRROR/toolchain/prebuilts/clang/host/linux-x86 \
-            -b $BRANCH --depth 1 aosp-clang
+          # Clone the specific AOSP Clang toolchain and check out the exact commit hash.
+          git clone https://android.googlesource.com/toolchain/llvm-project \
+            --depth 1 --branch b3a530ec6537146650e42be89f1089e9a3588460 aosp-clang
           
-          git clone $AOSP_MIRROR/toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
-            -b $BRANCH --depth 1 aosp-gcc-aarch64
-          
-          git clone $AOSP_MIRROR/toolchain/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
-            -b $BRANCH --depth 1 aosp-gcc-arm
-            
-          # Clone LineageOS specific toolchains (keeping them for potential cross-compilation).
-          git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b \
-            -b lineage-20.0 --depth=1 lineage-clang || true 
+          # Clone LineageOS specific toolchains.
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-arm || true
 
-          # Clone other AOSP tools.
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools 
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
+          # Clone other necessary AOSP tools you already had.
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools \
+            -b main-kernel-build-2024 --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg \
+            -b main-kernel-build-2024 --depth 1 mkbootimg
 
       - name: Set Environment Variables
         run: |
@@ -155,8 +148,8 @@ jobs:
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
           # Set the path for the AOSP Clang toolchain.
-          export AOSP_CLANG_PATH=$(find $(pwd)/aosp-clang -name "clang-*" -type d)
-          echo "CLANG_PATH=$AOSP_CLANG_PATH" >> $GITHUB_ENV
+          export AOSP_CLANG_PATH=$(pwd)/aosp-clang
+          echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
           
           # Use the LineageOS GCC toolchains for cross-compilation.
           echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
@@ -394,10 +387,16 @@ jobs:
         run: |
           set -e
           set -x
+          
           cd kernel
           
-          # Set the path to the AOSP clang toolchain and the LineageOS GCC toolchains.
-          export AOSP_CLANG_PATH=$(find $(pwd)/../aosp-clang -name "clang-*" -type d)
+          # Clean the source tree completely to prevent "unclean" errors.
+          make ARCH=arm64 mrproper
+          
+          # Set the path to the AOSP clang toolchain (from the llvm-project clone).
+          export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
+          
+          # Set the path to the LineageOS GCC toolchains.
           export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
           export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
           
@@ -423,9 +422,6 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           
-          # Run make clean to ensure a fresh build.
-          make O=out ARCH=arm64 clean
-          
           echo "Building kernel with the required AOSP Clang toolchain and LineageOS GCC..."
           make -j$(nproc) \
             O=out \
@@ -440,7 +436,7 @@ jobs:
         if: ${{ inputs.build_modules }}
         run: |
           cd kernel
-          export AOSP_CLANG_PATH=$(find $(pwd)/../aosp-clang -name "clang-*" -type d)
+          export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
           export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
           export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
           
@@ -614,4 +610,4 @@ jobs:
           path: |
             *.img
             *.zip
-            *.CPIO
+            *.cpio

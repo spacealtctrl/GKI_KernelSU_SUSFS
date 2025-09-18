@@ -496,29 +496,22 @@ jobs:
           cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
           cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
           cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
-      - name: Package with AnyKernel3
+- name: Package with AnyKernel3
         run: |
           cp bootimgs/Image AnyKernel3/
           cp bootimgs/Image.gz AnyKernel3/
           cp bootimgs/Image.lz4 AnyKernel3/
-          # Copying the ramdisk to AnyKernel3 directory
-          curl -LO https://mirrorbits.lineageos.org/full/pdx234/20250914/init_boot.img
-          mkdir init_boot_unpacked
-          cd init_boot_unpacked
-          python3 "$UNPACK_BOOTIMG" --boot_img ../init_boot.img --out .
-          mkdir -p ramdisk_contents
-          cd ramdisk_contents
-          # FIX: Decompress the ramdisk using lz4 legacy before piping to cpio
-          lz4 -d --legacy ../ramdisk | cpio -idmv
-          cp -r * ../../../AnyKernel3/ramdisk/
-          # End of ramdisk copy
+          
+          # Copy DTBs if they exist
           mkdir -p AnyKernel3/dtbs
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
+          
           if [ "${{ inputs.build_modules }}" = "true" ] && [ -d "modules_out" ]; then
             echo "Copying kernel modules to AnyKernel3..."
             mkdir -p AnyKernel3/modules/system/lib/modules
             find modules_out -name "*.ko" -exec cp {} AnyKernel3/modules/system/lib/modules/ \;
           fi
+          
           cat > AnyKernel3/anykernel.sh << 'EOF'
           # AnyKernel3 Ramdisk Mod Script
           # osm0sis @ xda-developers
@@ -554,12 +547,13 @@ jobs:
           fi;
           write_boot;
           EOF
+          
           cd AnyKernel3
           ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
           zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4
           rm -f Image
-          ZIP_NAME_GZ="android15-5.15.185-2025-08-AnyKernel3-gz.zip"
+          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
           zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4
           rm -f Image.gz
-          ZIP_NAME_LZ4="android15-5.15.185-2025-08-AnyKernel3-lz4.zip"
+          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
           zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz

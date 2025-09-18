@@ -119,9 +119,13 @@ jobs:
             -b main-kernel-build-2024 --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg \
             -b main-kernel-build-2024 --depth 1 mkbootimg
+          
+          # Clone avb as per the guide
+          git clone $AOSP_MIRROR/platform/external/avb tools/avb
       - name: Set Environment Variables
         run: |
-          echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
+          # Use the cloned avb tool
+          echo "AVBTOOL=$GITHUB_WORKSPACE/tools/avb/avbtool.py" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
@@ -132,8 +136,10 @@ jobs:
           echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
       - name: Setup Boot Signing Key
         run: |
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
-          echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
+          # Create the path for the private key as per the guide's example
+          mkdir -p tools/avb
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > tools/avb/private_key.pem
+          echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/tools/avb/private_key.pem" >> $GITHUB_ENV
       - name: Clone Kernel and Dependencies
         run: |
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
@@ -437,7 +443,6 @@ jobs:
           cd bootimgs
           echo "Building boot images for ${{ inputs.android_version }}..."
           
-          # Match guide exactly, no os_version or os_patch_level
           python3 $MKBOOTIMG \
             --header_version 4 \
             --kernel Image \
@@ -450,36 +455,8 @@ jobs:
             --algorithm SHA256_RSA2048 \
             --key $BOOT_SIGN_KEY_PATH
           
-          # Create boot-gz.img with gzip compressed Image
-          python3 $MKBOOTIMG \
-            --header_version 4 \
-            --kernel Image.gz \
-            --output boot-gz.img
-          
-          $AVBTOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-gz.img \
-            --algorithm SHA256_RSA2048 \
-            --key $BOOT_SIGN_KEY_PATH
-          
-          # Create boot-lz4.img with lz4 compressed Image
-          python3 $MKBOOTIMG \
-            --header_version 4 \
-            --kernel Image.lz4 \
-            --output boot-lz4.img
-          
-          $AVBTOOL add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot-lz4.img \
-            --algorithm SHA256_RSA2048 \
-            --key $BOOT_SIGN_KEY_PATH
-          
           # Copy to root with descriptive names
           cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
-          cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
-          cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
           
           echo "Boot images created successfully!"
           ls -la *.img
@@ -487,8 +464,6 @@ jobs:
         run: |
           # Copy kernel images
           cp bootimgs/Image AnyKernel3/
-          cp bootimgs/Image.gz AnyKernel3/
-          cp bootimgs/Image.lz4 AnyKernel3/
           
           # Copy device tree blobs
           mkdir -p AnyKernel3/dtbs
@@ -533,19 +508,7 @@ jobs:
           
           # Create uncompressed Image zip
           ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
-          zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4
-          rm -f Image
-          
-          # Create gzip Image zip
-          cp ../bootimgs/Image.gz ./
-          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
-          zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4
-          rm -f Image.gz
-          
-          # Create lz4 Image zip
-          cp ../bootimgs/Image.lz4 ./
-          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
-          zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz
+          zip -r "../$ZIP_NAME" ./*
           
           echo "AnyKernel3 packages created successfully!"
       - name: Upload Build Artifacts

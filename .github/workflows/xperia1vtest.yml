@@ -572,3 +572,11 @@ jobs:
           rm -f Image.gz
           ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
           zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sony-SM8550-Kernel-${{ inputs.android_version }}-${{ github.run_id }}
+          path: |
+            *.img
+            *.zip
+            *.CPIO

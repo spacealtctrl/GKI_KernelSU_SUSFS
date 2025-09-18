@@ -1,9 +1,7 @@
-name: Sony SM8550 GKI-Style Kernel Build (patched)
-
+name: Sony SM8550 GKI-Style Kernel Build
 permissions:
   contents: write
   actions: write
-
 on:
   workflow_dispatch:
     inputs:
@@ -53,7 +51,6 @@ on:
         description: 'Custom version string (optional)'
         required: false
         type: string
-
 jobs:
   build-sony-kernel:
     runs-on: ubuntu-latest
@@ -74,7 +71,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: true
-
       - name: Setup Build Environment
         run: |
           sudo apt update && sudo apt upgrade -y
@@ -84,8 +80,8 @@ jobs:
             lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev \
             libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
             schedtool squashfs-tools xsltproc zip zlib1g-dev \
-            python3 python3-pip clang lld llvm libelf-dev dwarves lz4
-          # Create symlinks for LLVM tools if needed (best-effort)
+            python3 python3-pip clang lld llvm libelf-dev dwarves
+          
           sudo ln -sf /usr/bin/llvm-ar-* /usr/bin/llvm-ar 2>/dev/null || true
           sudo ln -sf /usr/bin/llvm-nm-* /usr/bin/llvm-nm 2>/dev/null || true
           sudo ln -sf /usr/bin/llvm-objcopy-* /usr/bin/llvm-objcopy 2>/dev/null || true
@@ -105,55 +101,57 @@ jobs:
           key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
           restore-keys: |
             sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
-      - name: Clone Toolchains and Utilities
+      - name: Clone Toolchains
         run: |
           AOSP_MIRROR=https://android.googlesource.com
-          # Use specific release tags for stable toolchains
-          git clone $AOSP_MIRROR/toolchain/llvm-project aosp-clang --depth=1 || true
-          cd aosp-clang || exit 0
-          git checkout 20240409 || true
+          
+          git clone $AOSP_MIRROR/toolchain/llvm-project aosp-clang
+          cd aosp-clang
+          git checkout b3a530ec6537146650e42be89f1089e9a3588460
           cd ..
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools/linux-x86/main/aarch64-linux-android-4.9 --depth=1 aosp-gcc || true
-          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools --depth 1 kernel-build-tools || true
-          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg --depth=1 mkbootimg || true
-          git clone https://github.com/vmware-tanzu/antidote.git antidote || true
-          git clone https://github.com/lineageos/avb avb-tools || true
-          # Fallback: also clone platform/external/avb to mirror original layout
-          git clone https://android.googlesource.com/platform/external/avb tools/avb || true
+          
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
+            -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
+            -b lineage-19.1 --depth=1 lineage-gcc-arm || true
+          
+          git clone $AOSP_MIRROR/kernel/prebuilts/build-tools \
+            -b main-kernel-build-2024 --depth 1 kernel-build-tools
+          git clone $AOSP_MIRROR/platform/system/tools/mkbootimg \
+            -b main-kernel-build-2024 --depth 1 mkbootimg
       - name: Set Environment Variables
         run: |
-          echo "OUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
-          echo "AVBTOOL=$GITHUB_WORKSPACE/tools/avb/avbtool.py" >> $GITHUB_ENV
+          echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
+          
           AOSP_CLANG_PATH=$(pwd)/aosp-clang
-          AOSP_GCC_PATH=$(pwd)/aosp-gcc
           echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
-          echo "GCC_AARCH64_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
-          echo "GCC_ARM_PATH=$AOSP_GCC_PATH/bin" >> $GITHUB_ENV
-          mkdir -p out
-      - name: Install Python deps for avbtool
-        run: |
-          pip3 install --user pyOpenSSL cryptography
+          
+          echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
+          echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
       - name: Setup Boot Signing Key
         run: |
-          mkdir -p kernel-build-tools/linux-x86/share/avb || true
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
       - name: Clone Kernel and Dependencies
         run: |
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550.git \
-            -b lineage-22.2 --depth=1 kernel || true
+            -b lineage-22.2 --depth=1 kernel
+          
           echo "Cloning Sony SM8550 devicetrees repository..."
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 devicetrees || true
+            -b lineage-22.2 --depth=1 devicetrees
+          
           ANYKERNEL_BRANCH="gki-2.0"
-          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3 || true
+          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "$ANYKERNEL_BRANCH" AnyKernel3
+          
           SUSFS_BRANCH="gki-android14-5.15"
           echo "Using SUSFS branch: $SUSFS_BRANCH (for 5.15 kernel)"
-          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu || true
-          git clone https://github.com/Tools-cx-app/kernel_patches.git || true
-          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git || true
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b "$SUSFS_BRANCH" susfs4ksu
+          
+          git clone https://github.com/Tools-cx-app/kernel_patches.git
+          git clone https://github.com/SukiSU-Ultra/SukiSU_patch.git
       - name: Setup device trees
         run: |
           rm -rf kernel/arch/arm64/boot/dts/vendor || true
@@ -161,6 +159,7 @@ jobs:
       - name: Setup KernelSU
         run: |
           cd kernel
+          
           case "${{ inputs.kernelsu_branch }}" in
             "Stable(标准)")
               BRANCH="-s susfs-main"
@@ -181,6 +180,7 @@ jobs:
               exit 1
               ;;
           esac
+          
           case "${{ inputs.kernelsu_variant }}" in
             "Official")
               echo "Adding Official KernelSU..."
@@ -208,47 +208,52 @@ jobs:
         run: |
           cd kernel
           echo "Applying SUSFS patches for gki-android14-5.15 (5.15 kernel regardless of Android version)"
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ./ || true
-          cp -r ../susfs4ksu/kernel_patches/fs/* ./fs/ 2>/dev/null || true
-          cp -r ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ 2>/dev/null || true
+          
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-5.15.patch ./
+          cp ../susfs4ksu/kernel_patches/fs/* ./fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/
+          
           if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "Applying SUSFS patches for Official KernelSU..."
-            cd ./KernelSU || true
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./ || true
+            cd ./KernelSU
+            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
             patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
             cd ..
           elif [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "KernelSU-Next already has SUSFS support..."
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "Applying SUSFS patches for MKSU..."
-            cd ./KernelSU || true
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./ || true
+            cd ./KernelSU
+            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
             patch -p1 --forward --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
-            cp ../../kernel_patches/mksu/mksu_susfs.patch ./ || true
+            cp ../../kernel_patches/mksu/mksu_susfs.patch ./
             patch -p1 < mksu_susfs.patch || true
-            cp ../../kernel_patches/mksu/fix.patch ./ || true
+            cp ../../kernel_patches/mksu/fix.patch ./
             patch -p1 < fix.patch || true
             cd ..
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "SukiSU already has SUSFS support..."
           fi
+          
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-android14-5.15.patch || true
       - name: Apply Additional Patches
         run: |
           cd kernel
+          
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "Applying hooks for KernelSU-Next..."
-            cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./ || true
+            cp ../kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./
             patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch || true
           elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
             echo "Applying hooks for SukiSU..."
-            cp ../SukiSU_patch/hooks/syscall_hooks.patch ./ || true
+            cp ../SukiSU_patch/hooks/syscall_hooks.patch ./
             patch -p1 -F 3 < syscall_hooks.patch || true
           fi
+          
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            cp ../SukiSU_patch/69_hide_stuff.patch ./ || true
+            cp ../SukiSU_patch/69_hide_stuff.patch ./
           else
-            cp ../kernel_patches/69_hide_stuff.patch ./ || true
+            cp ../kernel_patches/69_hide_stuff.patch ./
           fi
           patch -p1 -F 3 < 69_hide_stuff.patch || true
       - name: Apply ZRAM Optimizations
@@ -256,40 +261,42 @@ jobs:
         run: |
           cd kernel
           echo "Applying ZRAM optimizations for 5.15 kernel..."
-          cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/ 2>/dev/null || true
-          cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/ 2>/dev/null || true
-          cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/ 2>/dev/null || true
-          cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/ 2>/dev/null || true
+          
+          cp -r ../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r ../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+          cp -r ../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+          cp -r ../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+          
           if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch ./ || true
+            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4kd.patch ./
             echo "Applying lz4kd patch for 5.15..."
             patch -p1 -F 3 < lz4kd.patch || true
           fi
+          
           if [ -f "../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch" ]; then
-            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch ./ || true
+            cp ../SukiSU_patch/other/zram/zram_patch/5.15/lz4k_oplus.patch ./
             echo "Applying lz4k_oplus patch for 5.15..."
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
-      - name: Build Kernel (mrproper -> defconfig -> build into OUT_DIR)
+      - name: Configure Kernel
         run: |
-          set -e
-          set -x
           cd kernel
-          # Ensure OUT_DIR exists and is used for all build artifacts
-          export OUT_DIR=$GITHUB_WORKSPACE/out
-          mkdir -p "$OUT_DIR"
-          # Clean the source tree first
-          make ARCH=arm64 mrproper
-          # Generate gki_defconfig into OUT_DIR
-          make ARCH=arm64 O=$OUT_DIR gki_defconfig
-          # Edit the defconfig in the OUT_DIR (safe: doesn't touch tree)
-          CONFIG_FILE="$OUT_DIR/arch/arm64/configs/gki_defconfig"
+          
+          make ARCH=arm64 gki_defconfig
+          
+          CONFIG_FILE="arch/arm64/configs/gki_defconfig"
+          
+          # Fix stack protector issues with LLVM
           echo "CONFIG_STACKPROTECTOR_STRONG=y" >> "$CONFIG_FILE"
           echo "CONFIG_CC_HAS_STACKPROTECTOR_NONE=y" >> "$CONFIG_FILE"
           echo "# CONFIG_STACKPROTECTOR_PER_TASK is not set" >> "$CONFIG_FILE"
+          
+          # Disable problematic BPF tools
           echo "# CONFIG_DEBUG_INFO_BTF is not set" >> "$CONFIG_FILE"
           echo "# CONFIG_BPF_LSM is not set" >> "$CONFIG_FILE"
+          
           echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
+          
           if [ "${{ inputs.kernelsu_variant }}" == "Next" ]; then
             echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$CONFIG_FILE"
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
@@ -300,93 +307,252 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$CONFIG_FILE"
           fi
+          
           if [ "${{ inputs.use_susfs }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
-              CONFIG_KSU_SUSFS=y
-              CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-              CONFIG_KSU_SUSFS_SUS_PATH=y
-              CONFIG_KSU_SUSFS_SUS_MOUNT=y
-              CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-              CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-              CONFIG_KSU_SUSFS_SUS_KSTAT=y
-              CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-              CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-              CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-              CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-              CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-            EOF
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          EOF
           fi
+          
+          cat >> "$CONFIG_FILE" << EOF
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_TCP_CONG_BIC=n
+          CONFIG_TCP_CONG_WESTWOOD=n
+          CONFIG_TCP_CONG_HTCP=n
+          EOF
+          
           if [ "${{ inputs.use_zram }}" = "true" ]; then
             cat >> "$CONFIG_FILE" << EOF
-              CONFIG_ZSMALLOC=y
-              CONFIG_ZRAM=y
-              CONFIG_CRYPTO_LZO=y
-              CONFIG_CRYPTO_LZ4HC=y
-              CONFIG_CRYPTO_LZ4K=y
-              CONFIG_CRYPTO_LZ4KD=y
-              CONFIG_CRYPTO_842=y
-              CONFIG_CRYPTO_LZ4K_OPLUS=y
-              CONFIG_ZRAM_WRITEBACK=y
-              CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-            EOF
+          CONFIG_ZSMALLOC=y
+          CONFIG_ZRAM=y
+          CONFIG_CRYPTO_LZO=y
+          CONFIG_CRYPTO_LZ4HC=y
+          CONFIG_CRYPTO_LZ4K=y
+          CONFIG_CRYPTO_LZ4KD=y
+          CONFIG_CRYPTO_842=y
+          CONFIG_CRYPTO_LZ4K_OPLUS=y
+          CONFIG_ZRAM_WRITEBACK=y
+          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+          EOF
           fi
-          # Install defconfig into .config for the build
-          make ARCH=arm64 O=$OUT_DIR defconfig
-          # Export toolchains BEFORE make
-          export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
-          export AOSP_GCC_PATH=$(realpath ../aosp-gcc)
-          export PATH=$AOSP_CLANG_PATH/bin:$AOSP_GCC_PATH/bin:$PATH
-          export LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib:$LD_LIBRARY_PATH
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=$AOSP_GCC_PATH/bin/aarch64-linux-android-
-          export CROSS_COMPILE_ARM32=$AOSP_GCC_PATH/bin/arm-linux-androideabi-
-          export CROSS_COMPILE_COMPAT=$AOSP_GCC_PATH/bin/arm-linux-androideabi-
-          export KBUILD_BUILD_USER=github
-          export KBUILD_BUILD_HOST=actions
-          export CC="ccache clang"
-          export CXX="ccache clang++"
-          export LD="ld.lld"
-          export AR="llvm-ar"
-          export NM="llvm-nm"
-          export OBJCOPY="llvm-objcopy"
-          export OBJDUMP="llvm-objdump"
-          export STRIP="llvm-strip"
-          export READELF="llvm-readelf"
-          export HOST_CC="ccache clang"
-          export HOST_LD="ld.lld"
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS="-Wframe-larger-than=20000 -fno-stack-protector"
-          export KCPPFLAGS="-Wframe-larger-than=20000"
-          echo "Building 5.15 kernel for ${{ inputs.android_version }} into O=$OUT_DIR ..."
-          make ARCH=arm64 \
-            O=$OUT_DIR \
-            -j$(nproc --all) \
-            Image \
-            dtbo.img \
-            modules
-      - name: Build and Sign Boot Image
-        run: |
-          set -e
-          set -x
           
-          BOOT_IMAGE_NAME="boot-${{ inputs.kernelsu_variant }}.img"
-          # Create the boot image using mkbootimg
-          python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
+          if [ ! -z "${{ inputs.custom_version }}" ]; then
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-${{ inputs.custom_version }}\"" "$CONFIG_FILE"
+          else
+            sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
+          fi
+          
+          # This is an important step. You MUST re-apply the config after making changes.
+          make ARCH=arm64 gki_defconfig
+          
+      - name: Configure Kernel Name and Build Info
+        run: |
+          cd kernel
+          CURRENT_TIME=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
+          echo "CURRENT_TIME=$CURRENT_TIME"
+          
+          if [ ! -z "${{ inputs.custom_version }}" ]; then
+            echo "Using custom version: ${{ inputs.custom_version }}"
+            sed -i '$s|echo "\$res"|echo "${{ inputs.custom_version }}"|' ./scripts/setlocalversion
+          else
+            echo "Using default version with build info"
+            sed -i '$s|echo "\$res"|echo "\$res-Sony-SM8550-${{ inputs.android_version }}"|' ./scripts/setlocalversion
+          fi
+          
+          perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
+          sed -i 's/-dirty//' ./scripts/setlocalversion
+      - name: Build Kernel
+        run: |
+          cd kernel
+          make ARCH=arm64 mrproper
+          make ARCH=arm64 gki_defconfig
+          make ARCH=arm64 \
+            CC="ccache clang" \
+            HOST_CC="ccache clang" \
+            LD="ld.lld" \
+            HOST_LD="ld.lld" \
+            OBJDUMP="llvm-objdump" \
+            OBJCOPY="llvm-objcopy" \
+            STRIP="llvm-strip" \
+            O="./" \
+            -j$(nproc) \
+            Image \
+            dtbs
+          echo "Kernel build completed successfully!"
+          ls -la arch/arm64/boot/
+          ccache --show-stats
+      - name: Patch Image for KMP (SukiSU only)
+        if: ${{ inputs.use_kmp && inputs.kernelsu_variant == 'SukiSU' }}
+        run: |
+          cd kernel/arch/arm64/boot
+          echo "Patching Image file for KMP..."
+          chmod +x ../../../../SukiSU_patch/kmp/patch_linux
+          ../../../../SukiSU_patch/kmp/patch_linux
+          rm -rf Image
+          mv oImage Image
+          gzip -n -k -f -9 ./Image > ./Image.gz
+      - name: Create Boot Images Directory and Copy Files
+        run: |
+          echo "Creating bootimgs directory..."
+          mkdir -p bootimgs
+          
+          cp kernel/arch/arm64/boot/Image bootimgs/
+          
+          if [ ! -f kernel/arch/arm64/boot/Image.gz ]; then
+            gzip -n -k -f -9 kernel/arch/arm64/boot/Image > bootimgs/Image.gz
+          else
+            cp kernel/arch/arm64/boot/Image.gz bootimgs/
+          fi
+          
+          lz4 -f -12 --favor-decSpeed kernel/arch/arm64/boot/Image bootimgs/Image.lz4
+          
+          # Copy to root for artifacts
+          cp bootimgs/Image ./
+          cp bootimgs/Image.gz ./
+          cp bootimgs/Image.lz4 ./
+          
+          echo "Boot images prepared successfully!"
+          ls -la bootimgs/
+      - name: Create Boot Images
+        run: |
+          cd bootimgs
+          echo "Building boot images for ${{ inputs.android_version }}..."
+          
+          # Match guide exactly, no os_version or os_patch_level
+          python3 $MKBOOTIMG \
             --header_version 4 \
-            --kernel "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" \
-            --output "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME"
-          # Add hash footer and sign the boot image with avbtool
-          python3 "$GITHUB_WORKSPACE/tools/avb/avbtool.py" \
-            add_hash_footer \
+            --kernel Image \
+            --output boot.img
+          
+          $AVBTOOL add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
-            --image "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME" \
+            --image boot.img \
             --algorithm SHA256_RSA2048 \
-            --key "$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
-      - name: Upload Artifact
+            --key $BOOT_SIGN_KEY_PATH
+          
+          # Create boot-gz.img with gzip compressed Image
+          python3 $MKBOOTIMG \
+            --header_version 4 \
+            --kernel Image.gz \
+            --output boot-gz.img
+          
+          $AVBTOOL add_hash_footer \
+            --partition_name boot \
+            --partition_size $((64 * 1024 * 1024)) \
+            --image boot-gz.img \
+            --algorithm SHA256_RSA2048 \
+            --key $BOOT_SIGN_KEY_PATH
+          
+          # Create boot-lz4.img with lz4 compressed Image
+          python3 $MKBOOTIMG \
+            --header_version 4 \
+            --kernel Image.lz4 \
+            --output boot-lz4.img
+          
+          $AVBTOOL add_hash_footer \
+            --partition_name boot \
+            --partition_size $((64 * 1024 * 1024)) \
+            --image boot-lz4.img \
+            --algorithm SHA256_RSA2048 \
+            --key $BOOT_SIGN_KEY_PATH
+          
+          # Copy to root with descriptive names
+          cp boot.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot.img"
+          cp boot-gz.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-gz.img"
+          cp boot-lz4.img "../${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-boot-lz4.img"
+          
+          echo "Boot images created successfully!"
+          ls -la *.img
+      - name: Package with AnyKernel3
+        run: |
+          # Copy kernel images
+          cp bootimgs/Image AnyKernel3/
+          cp bootimgs/Image.gz AnyKernel3/
+          cp bootimgs/Image.lz4 AnyKernel3/
+          
+          # Copy device tree blobs
+          mkdir -p AnyKernel3/dtbs
+          find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
+          
+          # Create AnyKernel3 config
+          cat > AnyKernel3/anykernel.sh << 'EOF'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          
+          properties() {
+          kernel.string=Sony SM8550 KernelSU + SUSFS Kernel (${{ inputs.android_version }} - 5.15.${{ env.KERNEL_SUBLEVEL }})
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=pdx234
+          device.name2=pdx237
+          device.name3=yodo
+          device.name4=sm8550
+          supported.versions=13,14,15
+          supported.patchlevels=
+          }
+          
+          # Shell variables
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          
+          # Import functions/variables and setup patching
+          . tools/ak3-core.sh;
+          
+          # AnyKernel install
+          dump_boot;
+          
+          write_boot;
+          EOF
+          
+          cd AnyKernel3
+          
+          # Create uncompressed Image zip
+          ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
+          zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4
+          rm -f Image
+          
+          # Create gzip Image zip
+          cp ../bootimgs/Image.gz ./
+          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
+          zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4
+          rm -f Image.gz
+          
+          # Create lz4 Image zip
+          cp ../bootimgs/Image.lz4 ./
+          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
+          zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz
+          
+          echo "AnyKernel3 packages created successfully!"
+      - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SM8550-GKI-Kernel-
-          path: AnyKernel3/SM8550-GKI-Kernel-${{ inputs.kernelsu_variant }}-${{ inputs.android_version }}-${{ inputs.custom_version }}-${{ env.KERNEL_VERSION }}-${{ env.KERNEL_SUBLEVEL }}.zip
+          name: Sony-SM8550-Kernel-${{ inputs.android_version }}-${{ github.run_id }}
+          path: |
+            *.img
+            *.zip
+          retention-days: 30

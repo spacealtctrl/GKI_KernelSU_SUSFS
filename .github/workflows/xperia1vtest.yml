@@ -101,29 +101,26 @@ jobs:
           ccache --max-size=5G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: sony-sm8550-${{ inputs.android_version }}-5.15-ccache-${{ github.sha }}
-          restore-keys: |
-            sony-sm8550-${{ inputs.android_version }}-5.15-ccache-
 
       - name: Clone Toolchains
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           
-          # Clone the specific AOSP Clang toolchain and check out the exact commit hash.
-          git clone https://android.googlesource.com/toolchain/llvm-project \
-            --depth 1 --branch b3a530ec6537146650e42be89f1089e9a3588460 aosp-clang
+          # Correctly clone the AOSP Clang toolchain and check out the exact commit hash.
+          # First, clone the repository.
+          git clone https://android.googlesource.com/toolchain/llvm-project aosp-clang
+          # Then, change to the directory and check out the specific commit.
+          cd aosp-clang
+          git checkout b3a530ec6537146650e42be89f1089e9a3588460
+          cd ..
           
           # Clone LineageOS specific toolchains.
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-arm || true
-
+          
           # Clone other necessary AOSP tools you already had.
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools \
             -b main-kernel-build-2024 --depth 1 kernel-build-tools

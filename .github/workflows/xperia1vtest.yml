@@ -72,17 +72,7 @@ jobs:
       KCFLAGS: "-Wframe-larger-than=20000"
       KCPPFLAGS: "-Wframe-larger-than=20000"
 
-    steps:
-      - name: Maximize Build Space
-        uses: AdityaGarg8/remove-unwanted-software@v5
-        with:
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-          remove-large-packages: 'true'
-          remove-swapfile: 'true'
+
 
       - name: Setup Build Environment
         run: |

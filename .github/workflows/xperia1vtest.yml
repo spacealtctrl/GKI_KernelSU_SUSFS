@@ -360,32 +360,6 @@ jobs:
           fi
           perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
           sed -i 's/-dirty//' ./scripts/setlocalversion
-
-      # --- Conditional Step for Android 14/15 ---
-      - name: Set Build Path based on Android Version
-        id: set-build-path
-        run: |
-          if [[ "${{ inputs.android_version }}" == "android14" || "${{ inputs.android_version }}" == "android15" ]]; then
-            echo "Setting build path for Android 14/15 (Bazel build system)..."
-            echo "BUILD_PATH=bazel-bin/common/kernel_aarch64/" >> $GITHUB_ENV
-          else
-            echo "Setting standard build path..."
-            echo "BUILD_PATH=kernel/arch/arm64/boot/" >> $GITHUB_ENV
-          fi
-      
-      # --- Conditional ZRAM/ZSmalloc fix for Android 14/15 ---
-      - name: Apply Android 14/15 ZRAM Fix
-        if: ${{ inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
-        run: |
-          echo "Applying zram and zsmalloc fixes for Android 14/15..."
-          # This is a placeholder. You'll need to define the exact commands here.
-          # For example:
-          # sed -i 's/old_pattern/new_pattern/' modules.bzl
-          # Or copy a patched file:
-          # cp path/to/patched/modules.bzl .
-          echo "modules.bzl modification complete."
-          # NOTE: The provided code did not have a modules.bzl file, so this is a conceptual fix.
-
       - name: Build Kernel
         run: |
           set -e
@@ -456,24 +430,21 @@ jobs:
           rm -rf Image
           mv oImage Image
           gzip -n -k -f -9 ./Image > ./Image.gz
-      
       - name: Create Boot Images Directory and Copy Files
         run: |
           echo "Creating bootimgs directory..."
           mkdir -p bootimgs
-          # Using the conditional BUILD_PATH
-          cp "$BUILD_PATH"/Image bootimgs/
-          cp "$BUILD_PATH"/Image bootimgs/Image
-          if [ ! -f "$BUILD_PATH"/Image.gz ]; then
-            gzip -n -k -f -9 "$BUILD_PATH"/Image > bootimgs/Image.gz
+          cp kernel/arch/arm64/boot/Image bootimgs/
+          cp kernel/arch/arm64/boot/Image bootimgs/Image
+          if [ ! -f kernel/arch/arm64/boot/Image.gz ]; then
+            gzip -n -k -f -9 kernel/arch/arm64/boot/Image > bootimgs/Image.gz
           else
-            cp "$BUILD_PATH"/Image.gz bootimgs/
+            cp kernel/arch/arm64/boot/Image.gz bootimgs/
           fi
-          lz4 -f -12 --favor-decSpeed "$BUILD_PATH"/Image bootimgs/Image.lz4
+          lz4 -f -12 --favor-decSpeed kernel/arch/arm64/boot/Image bootimgs/Image.lz4
           cp bootimgs/Image ./
           cp bootimgs/Image.gz ./
           cp bootimgs/Image.lz4 ./
-          
       - name: Create Boot Images
         run: |
           cd bootimgs
@@ -537,7 +508,8 @@ jobs:
           python3 "$UNPACK_BOOTIMG" --boot_img ../init_boot.img --out .
           mkdir -p ramdisk_contents
           cd ramdisk_contents
-          cat ../ramdisk | cpio -idmv
+          # FIX: Decompress the ramdisk using lz4 legacy before piping to cpio
+          lz4 -d --legacy ../ramdisk | cpio -idmv
           cp -r * ../../../AnyKernel3/ramdisk/
           # End of ramdisk copy
           mkdir -p AnyKernel3/dtbs
@@ -586,8 +558,8 @@ jobs:
           ZIP_NAME="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3.zip"
           zip -r "../$ZIP_NAME" ./* -x Image.gz Image.lz4
           rm -f Image
-          ZIP_NAME_GZ="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-gz.zip"
+          ZIP_NAME_GZ="android15-5.15.185-2025-08-AnyKernel3-gz.zip"
           zip -r "../$ZIP_NAME_GZ" ./* -x Image Image.lz4
           rm -f Image.gz
-          ZIP_NAME_LZ4="${{ inputs.android_version }}-${{ env.KERNEL_VERSION }}.${{ env.KERNEL_SUBLEVEL }}-${{ env.ANDROID_SECURITY_PATCH }}-AnyKernel3-lz4.zip"
+          ZIP_NAME_LZ4="android15-5.15.185-2025-08-AnyKernel3-lz4.zip"
           zip -r "../$ZIP_NAME_LZ4" ./* -x Image Image.gz

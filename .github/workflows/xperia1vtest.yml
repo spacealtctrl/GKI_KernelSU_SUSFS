@@ -73,8 +73,6 @@ jobs:
       KCPPFLAGS: "-Wframe-larger-than=20000"
 
     steps:
-
-
       - name: Setup Build Environment
         run: |
           sudo apt update && sudo apt upgrade -y
@@ -105,21 +103,16 @@ jobs:
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           
-          # Correctly clone the AOSP Clang toolchain and check out the exact commit hash.
-          # First, clone the repository.
           git clone https://android.googlesource.com/toolchain/llvm-project aosp-clang
-          # Then, change to the directory and check out the specific commit.
           cd aosp-clang
           git checkout b3a530ec6537146650e42be89f1089e9a3588460
           cd ..
           
-          # Clone LineageOS specific toolchains.
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-aarch64 || true
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             -b lineage-19.1 --depth=1 lineage-gcc-arm || true
           
-          # Clone other necessary AOSP tools you already had.
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools \
             -b main-kernel-build-2024 --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg \
@@ -131,11 +124,9 @@ jobs:
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           
-          # Set the path for the AOSP Clang toolchain.
           export AOSP_CLANG_PATH=$(pwd)/aosp-clang
           echo "CLANG_PATH=$AOSP_CLANG_PATH/bin" >> $GITHUB_ENV
           
-          # Use the LineageOS GCC toolchains for cross-compilation.
           echo "GCC_AARCH64_PATH=$GITHUB_WORKSPACE/lineage-gcc-aarch64/bin" >> $GITHUB_ENV
           echo "GCC_ARM_PATH=$GITHUB_WORKSPACE/lineage-gcc-arm/bin" >> $GITHUB_ENV
           
@@ -367,6 +358,7 @@ jobs:
           fi
           perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./scripts/mkcompile_h
           sed -i 's/-dirty//' ./scripts/setlocalversion
+
       - name: Clean and Build Kernel with AOSP Toolchain
         run: |
           set -e
@@ -374,17 +366,15 @@ jobs:
           
           cd kernel
           
-          # Clean the source tree completely to prevent "unclean" errors.
-          # This command deletes all generated files, including .config.
-          make ARCH=arm64 mrproper
+          # Ensure the out/ tree is clean and present (out-of-tree build)
+          rm -rf out || true
+          mkdir -p out
+          make O=out ARCH=arm64 mrproper
           
-          # The .config file was just deleted by mrproper.
-          # We must re-create it and apply all configs before building.
+          # Create config in the out/ tree
+          make O=out ARCH=arm64 gki_defconfig
           
-          # Configure the kernel
-          make ARCH=arm64 gki_defconfig
-          
-          # Add configs to the gki_defconfig
+          # Add configs to the gki_defconfig (edit in-tree file then re-run)
           CONFIG_FILE="arch/arm64/configs/gki_defconfig"
           echo "CONFIG_KSU=y" >> "$CONFIG_FILE"
           
@@ -452,20 +442,16 @@ jobs:
             sed -i "/^CONFIG_LOCALVERSION=/c\CONFIG_LOCALVERSION=\"-Sony-SM8550-KSU-${{ inputs.android_version }}\"" "$CONFIG_FILE"
           fi
           
-          # Run the second make to generate the final .config and other build files
-          make ARCH=arm64 gki_defconfig
+          # Re-run to ensure the out/ config is updated
+          make O=out ARCH=arm64 gki_defconfig
           
-          # Set the path to the AOSP clang toolchain (from the llvm-project clone).
+          # Toolchain paths (used both for exports and inline make invocation)
           export AOSP_CLANG_PATH=$(pwd)/../aosp-clang
-          
-          # Set the path to the LineageOS GCC toolchains.
           export GCC_DIR_AARCH64=$(pwd)/../lineage-gcc-aarch64
           export GCC_DIR_ARM=$(pwd)/../lineage-gcc-arm
+          export CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Set the PATH variable.
-          export PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH
-          
-          # Set the necessary environment variables for the kernel build.
+          # Set environment variables used by other scripts or steps
           export KBUILD_BUILD_USER=github
           export KBUILD_BUILD_HOST=actions
           export CLANG_PATH=$AOSP_CLANG_PATH
@@ -485,15 +471,20 @@ jobs:
           export LLVM_IAS=1
           
           echo "Building kernel with the required AOSP Clang toolchain and LineageOS GCC..."
-          make -j$(nproc) \
-            O=out \
-            ARCH=arm64 \
+          make O=out ARCH=arm64 \
+            PATH=$AOSP_CLANG_PATH/bin:$GCC_DIR_AARCH64/bin:$GCC_DIR_ARM/bin:$PATH \
+            LD_LIBRARY_PATH=$AOSP_CLANG_PATH/lib \
+            LLVM=1 \
+            CROSS_COMPILE=$GCC_DIR_AARCH64/bin/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=$GCC_DIR_ARM/bin/arm-linux-androideabi- \
+            CLANG_TRIPLE=$CLANG_TRIPLE \
+            -j$(nproc) \
             Image \
             Image.gz \
             dtbs
           
           ccache --show-stats
-          
+
       - name: Build Modules
         if: ${{ inputs.build_modules }}
         run: |
@@ -610,7 +601,6 @@ jobs:
           cp bootimgs/Image.gz AnyKernel3/
           cp bootimgs/Image.lz4 AnyKernel3/
           
-          # Copy DTBs if they exist
           mkdir -p AnyKernel3/dtbs
           find kernel/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtbs/ \; 2>/dev/null || true
           

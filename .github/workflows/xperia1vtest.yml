@@ -270,7 +270,7 @@ jobs:
             echo "Applying lz4k_oplus patch for 5.15..."
             patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
-      - name: Build Kernel (mrproper -> gki_defconfig (strict) -> build into OUT_DIR with required flags)
+      - name: Build Kernel (mrproper -> defconfig -> build into OUT_DIR)
         run: |
           set -e
           set -x
@@ -278,15 +278,10 @@ jobs:
           # Ensure OUT_DIR exists and is used for all build artifacts
           export OUT_DIR=$GITHUB_WORKSPACE/out
           mkdir -p "$OUT_DIR"
-          # Clean the source tree first (matches guide strictly)
+          # Clean the source tree first
           make ARCH=arm64 mrproper
-
-          # The guide requires this exact line (strict): make ARCH=arm64 gki_defconfig
-          make ARCH=arm64 gki_defconfig
-
-          # We also create the gki_defconfig in OUT_DIR and edit it (keeps prior safe behavior)
+          # Generate gki_defconfig into OUT_DIR
           make ARCH=arm64 O=$OUT_DIR gki_defconfig
-
           # Edit the defconfig in the OUT_DIR (safe: doesn't touch tree)
           CONFIG_FILE="$OUT_DIR/arch/arm64/configs/gki_defconfig"
           echo "CONFIG_STACKPROTECTOR_STRONG=y" >> "$CONFIG_FILE"
@@ -336,10 +331,8 @@ jobs:
               CONFIG_ZRAM_DEF_COMP_LZ4KD=y
             EOF
           fi
-
           # Install defconfig into .config for the build
           make ARCH=arm64 O=$OUT_DIR defconfig
-
           # Export toolchains BEFORE make
           export AOSP_CLANG_PATH=$(realpath ../aosp-clang)
           export AOSP_GCC_PATH=$(realpath ../aosp-gcc)
@@ -366,33 +359,25 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS="-Wframe-larger-than=20000 -fno-stack-protector"
           export KCPPFLAGS="-Wframe-larger-than=20000"
-
           echo "Building 5.15 kernel for ${{ inputs.android_version }} into O=$OUT_DIR ..."
-
-          # The guide requires this exact-style invocation including the build flags.
-          make ARCH=arm64 CC="ccache clang" HOST_CC="ccache clang" LD="ld.lld" HOST_LD="ld.lld" OBJDUMP="llvm-objdump" OBJCOPY="llvm-objcopy" STRIP="llvm-strip" O="$OUT_DIR" -j$(nproc --all) Image dtbo.img modules
-
-      - name: Build and Sign Boot Image (mkbootimg with os_version/os_patch_level per guide)
+          make ARCH=arm64 \
+            O=$OUT_DIR \
+            -j$(nproc --all) \
+            Image \
+            dtbo.img \
+            modules
+      - name: Build and Sign Boot Image
         run: |
           set -e
           set -x
-
+          
           BOOT_IMAGE_NAME="boot-${{ inputs.kernelsu_variant }}.img"
-
-          # Create a placeholder ramdisk path: if you produce a ramdisk elsewhere, set this variable accordingly.
-          RAMDISK="$GITHUB_WORKSPACE/out/ramdisk.img"
-          # The guide strictly requires:
-          # tools/mkbootimg/mkbootimg.py --header_version 4 --kernel Image --output /path/to/boot.img --ramdisk /path/to/ramdisk --os_version 15.0.0 --os_patch_level <security_patch_level>
-          # We follow that strictly, filling values from the environment.
+          # Create the boot image using mkbootimg
           python3 "$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" \
             --header_version 4 \
             --kernel "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" \
-            --output "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME" \
-            --ramdisk "$RAMDISK" \
-            --os_version 15.0.0 \
-            --os_patch_level "${ANDROID_SECURITY_PATCH}"
-
-          # Add hash footer and sign the boot image with avbtool (matches guide)
+            --output "$GITHUB_WORKSPACE/out/$BOOT_IMAGE_NAME"
+          # Add hash footer and sign the boot image with avbtool
           python3 "$GITHUB_WORKSPACE/tools/avb/avbtool.py" \
             add_hash_footer \
             --partition_name boot \

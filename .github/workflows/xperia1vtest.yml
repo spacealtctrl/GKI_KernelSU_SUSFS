@@ -63,7 +63,8 @@ jobs:
           
       - name: Setup device trees
         run: |
-          # Clone devicetrees to root level
+          # Clone devicetrees to root level (remove if exists)
+          rm -rf devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 devicetrees
           
@@ -72,7 +73,10 @@ jobs:
           ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
           
           # Verify symlink works
-          ls -la kernel/arch/arm64/boot/dts/vendor/
+          echo "Checking devicetree symlink:"
+          ls -la kernel/arch/arm64/boot/dts/ | grep vendor
+          echo "Contents of devicetrees through symlink:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -10
           
       - name: Install Build Dependencies
         run: |

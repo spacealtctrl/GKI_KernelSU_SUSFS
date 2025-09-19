@@ -15,29 +15,18 @@ jobs:
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
 
-      - name: Clone and Integrate Devicetrees
+      - name: Clone Devicetrees
         run: |
-          # Remove any old temp folder
           rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
 
-          # Move devicetrees into kernel/vendor
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-      - name: Pull dt-bindings separately
-        run: |
-          # Remove old dt-bindings folder
+          # Copy bindings folder from the same repo into include/dt-bindings
           rm -rf kernel/include/dt-bindings || true
-          # Copy bindings folder from devicetrees into include/dt-bindings
           cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
-          # Verify critical header exists
-          if [ ! -f kernel/include/dt-bindings/clock/qcom,gcc-kalama.h ]; then
-            echo "Error: dt-bindings header not found!"
-            exit 1
-          fi
-          echo "dt-bindings headers in place."
 
       - name: Clone Toolchains
         run: |
@@ -65,7 +54,6 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
 
-          # DTC include paths
           export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
           export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
 

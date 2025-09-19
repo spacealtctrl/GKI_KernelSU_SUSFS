@@ -27,23 +27,23 @@ jobs:
           # Move the devicetrees to be the vendor directory
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
           
-          # CRITICAL: Copy bindings to kernel include path where DTC expects them
-          echo "Copying bindings to kernel include path..."
-          cp -r kernel/arch/arm64/boot/dts/vendor/bindings/* kernel/include/dt-bindings/
+          # CRITICAL: Create bindings symlink in kernel include path
+          # The DTC looks for <bindings/...> so we need to preserve the bindings directory structure
+          echo "Setting up bindings in kernel include path..."
+          cd kernel/include/dt-bindings/
+          ln -sf ../../arch/arm64/boot/dts/vendor/bindings bindings
+          cd ../../../
           
-          # Verify the critical file exists
-          if [ -f "kernel/include/dt-bindings/qcom,audio-ext-clk.h" ]; then
-            echo "SUCCESS: qcom,audio-ext-clk.h found in kernel/include/dt-bindings/"
-            ls -la kernel/include/dt-bindings/qcom,audio-ext-clk.h
+          # Verify the critical file is accessible
+          if [ -f "kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h" ]; then
+            echo "SUCCESS: qcom,audio-ext-clk.h is accessible via symlink"
+            ls -la kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h
           else
-            echo "WARNING: qcom,audio-ext-clk.h not found, checking what's there..."
+            echo "Checking what's in vendor/bindings:"
             ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -10
-            ls -la kernel/include/dt-bindings/ | head -10
+            echo "Checking symlink:"
+            ls -la kernel/include/dt-bindings/ | grep bindings
           fi
-          
-          # Verify integration
-          echo "Contents of kernel/arch/arm64/boot/dts/vendor:"
-          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -10
           
           echo "Devicetrees successfully integrated into kernel source tree"
 

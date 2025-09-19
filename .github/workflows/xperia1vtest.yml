@@ -5,21 +5,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Cache Kernel Source
-        id: cache-kernel
+      - name: Cache and Checkout Kernel Source
         uses: actions/cache@v3
         with:
           path: .
           key: kernel-source-sm8550
-
       - name: Checkout Kernel Source
-        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         uses: actions/checkout@v4
         with:
           repository: spacealtctrl/android_kernel_sony_sm8550
           fetch-depth: 0
 
-      - name: Cache Toolchains
+      - name: Cache and Clone Toolchains
         id: cache-toolchains
         uses: actions/cache@v3
         with:
@@ -31,13 +29,13 @@ jobs:
           key: toolchains-lineage-22.2
 
       - name: Clone Toolchains
-        if: steps.cache-toolchains.outputs.cache-hit != 'true'
+        if: ${{ steps.cache-toolchains.outputs.cache-hit != 'true' }}
         run: |
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
           git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b lineage-22.2 tools-lineage
-          
+
       - name: Clone mkbootimg and avbtool
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
@@ -46,14 +44,10 @@ jobs:
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
-          # Clone devicetrees into a temporary directory
+          rm -rf arch/arm64/boot/dts/vendor
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 devicetree
-          
-          # Copy the contents of the devicetree repository to the correct kernel subdirectory
-          mkdir -p arch/arm64/boot/dts/vendor
-          cp -r devicetree/* arch/arm64/boot/dts/vendor/
-          
+            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
+            
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "DTS files found:"

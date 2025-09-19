@@ -40,11 +40,21 @@ jobs:
           rm -rf kernel/arch/arm64/boot/dts/vendor || true
           ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
           
-          # Verify symlink works
+          # CRITICAL: Copy bindings to kernel include directory where DTC expects them
+          echo "Copying devicetree bindings to kernel include directory..."
+          cp -r devicetrees/bindings/* kernel/include/dt-bindings/
+          
+          # Verify the critical file exists
+          if [ ! -f "kernel/include/dt-bindings/qcom,audio-ext-clk.h" ]; then
+            echo "ERROR: qcom,audio-ext-clk.h not found after copy!"
+            exit 1
+          fi
+          
+          echo "SUCCESS: Bindings copied to kernel/include/dt-bindings/"
           echo "Checking devicetree symlink:"
           ls -la kernel/arch/arm64/boot/dts/ | grep vendor
-          echo "Contents of devicetrees through symlink:"
-          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -10
+          echo "Verifying critical binding file:"
+          ls -la kernel/include/dt-bindings/qcom,audio-ext-clk.h
           
       - name: Install Build Dependencies
         run: |

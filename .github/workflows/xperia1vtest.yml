@@ -44,14 +44,24 @@ jobs:
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
+          # Remove the existing vendor directory/symlink if it exists
           rm -rf arch/arm64/boot/dts/vendor
+          
+          # Clone the devicetrees to a temporary location first
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
-            
+            -b lineage-22.2 --depth=1 sm8550-devicetrees
+          
+          # Create the symlink as specified in the instructions
+          cd arch/arm64/boot/dts/
+          ln -s ../../../../../sm8550-devicetrees vendor
+          cd ${{ github.workspace }}
+          
           echo "Devicetree structure:"
+          ls -la arch/arm64/boot/dts/
+          echo "Following symlink:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "DTS files found:"
-          find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
+          find sm8550-devicetrees -name "*.dts" -type f | head -5 || echo "No .dts files found"
           
       - name: Install Build Dependencies
         run: |
@@ -84,7 +94,6 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_INCLUDE_PATH=${{ github.workspace }}/arch/arm64/boot/dts/vendor \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

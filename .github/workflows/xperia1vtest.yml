@@ -27,27 +27,31 @@ jobs:
           # Move the devicetrees to be the vendor directory
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
           
-          # Debug: Show what's actually in the bindings directory
-          echo "Contents of vendor/bindings directory:"
-          ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -20
+          # COPY bindings instead of symlinking - build system may not follow symlinks
+          echo "Copying bindings to kernel include paths..."
           
-          # Create multiple symlinks to ensure DTC can find the bindings
-          echo "Creating symlinks for bindings..."
+          # Copy to dt-bindings with bindings subdirectory preserved
+          mkdir -p kernel/include/dt-bindings/bindings
+          cp -r kernel/arch/arm64/boot/dts/vendor/bindings/* kernel/include/dt-bindings/bindings/
           
-          # Method 1: Symlink in dt-bindings
-          cd kernel/include/dt-bindings/
-          ln -sf ../../arch/arm64/boot/dts/vendor/bindings bindings
-          cd ../../../
+          # Also copy to include root
+          mkdir -p kernel/include/bindings
+          cp -r kernel/arch/arm64/boot/dts/vendor/bindings/* kernel/include/bindings/
           
-          # Method 2: Also symlink in the include root
-          cd kernel/include/
-          ln -sf ../arch/arm64/boot/dts/vendor/bindings bindings
-          cd ../../
+          # Verify the files are there
+          echo "Checking if qcom,audio-ext-clk.h is accessible:"
+          if [ -f "kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h" ]; then
+            echo "SUCCESS: Found in dt-bindings/bindings/"
+            ls -la kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h
+          fi
           
-          # Verify symlinks
-          echo "Symlinks created:"
-          ls -la kernel/include/dt-bindings/ | grep bindings
-          ls -la kernel/include/ | grep bindings
+          if [ -f "kernel/include/bindings/qcom,audio-ext-clk.h" ]; then
+            echo "SUCCESS: Found in include/bindings/"
+            ls -la kernel/include/bindings/qcom,audio-ext-clk.h
+          fi
+          
+          echo "Total files copied to dt-bindings/bindings: $(find kernel/include/dt-bindings/bindings -type f | wc -l)"
+          echo "Total files copied to include/bindings: $(find kernel/include/bindings -type f | wc -l)"
           
           echo "Devicetrees successfully integrated into kernel source tree"
 

@@ -5,25 +5,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-
       - name: Cache Kernel Source
         id: cache-kernel
         uses: actions/cache@v3
         with:
           path: .
           key: kernel-source-sm8550
-          
+
       - name: Checkout Kernel Source
         if: steps.cache-kernel.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: spacealtctrl/android_kernel_sony_sm8550
-          fetch-depth: 0
-
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          repository: LineageOS/android_kernel_sony_sm8550
           fetch-depth: 0
 
       - name: Cache Toolchains
@@ -38,43 +31,38 @@ jobs:
           key: toolchains-lineage-22.2
 
       - name: Clone Toolchains
+        if: steps.cache-toolchains.outputs.cache-hit != 'true'
         run: |
-          # Clang is used as the primary compiler for modern Android kernels
-          # gcc is used for aarch64 and arm32 for compatibility with older code and tools
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
+          # 📍 Corrected: Changed branch from 'master' to 'lineage-22.2'
+          git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b lineage-22.2 tools-lineage
           
-          # Clone tools for signing
-          git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b master tools-lineage
-
       - name: Clone mkbootimg and avbtool
         run: |
-          # Use the official AOSP versions, as LineageOS bases their own tools on them
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           git clone https://android.googlesource.com/platform/external/avb tools/avb
-
+          
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
           mkdir -p arch/arm64/boot/dts
           rm -rf arch/arm64/boot/dts/vendor
-          # Clone devicetrees into the correct vendor subdirectory
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "DTS files found:"
           find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
-
+          
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
-
+          
       - name: Build Kernel
         run: |
-          # Set up environment
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
@@ -83,10 +71,8 @@ jobs:
           mkdir -p out
           make ARCH=arm64 mrproper
           
-          # The fix for the defconfig, using the correct one for your device.
           make ARCH=arm64 O=out pdx234_defconfig
           
-          # Build kernel with all necessary tools and flags
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -115,7 +101,6 @@ jobs:
       - name: Find DTB File
         id: find_dtb
         run: |
-          # Correctly locate the DTB file for boot image creation
           DTB_FILE=$(find out/arch/arm64/boot/dts/vendor -name "*.dtb" -print -quit)
           if [ -z "$DTB_FILE" ]; then
             echo "Error: No DTB file found in the vendor directory."
@@ -127,7 +112,6 @@ jobs:
       - name: Create Boot Image
         run: |
           ls -la ./out/arch/arm64/boot/Image
-          # Use mkbootimg to create the unsigned boot.img
           python3 tools/mkbootimg/mkbootimg.py \
             --header_version 4 \
             --kernel ./out/arch/arm64/boot/Image \
@@ -145,13 +129,10 @@ jobs:
 
       - name: Sign Boot Image with LineageOS Keys
         run: |
-          # Clone LineageOS build repository for test keys
           git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
           
-          # Convert PK8 key to PEM format for AVB
           openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
           
-          # Sign the boot image with AVB using LineageOS test key
           python3 tools/avb/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \

@@ -28,12 +28,13 @@ jobs:
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev
           
       - name: Build Kernel
-        env:
-          ARCH: arm64
-          SUBARCH: arm64
-          PATH: ${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:${{ env.PATH }}
-          LD_LIBRARY_PATH: ${{ github.workspace }}/mk-clang/lib
         run: |
+          # Set up environment
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
+          export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
+          
           # Create output directory
           mkdir -p out
           

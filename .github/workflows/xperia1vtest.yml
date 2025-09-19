@@ -1,47 +1,47 @@
 name: Simple Android Kernel Build
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
+
       - name: Checkout Kernel Source
         run: |
-          # Remove existing kernel directory if it exists
           rm -rf kernel || true
-          
-          # Clone kernel into 'kernel' subdirectory
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
 
       - name: Clone and Integrate Devicetrees
         run: |
-          # Clone devicetrees to a temporary folder
+          rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
 
-          # Copy the devicetree header files to the main kernel include directory
-          # This is the critical fix. We use '.' to merge contents.
-          cp -r temp-devicetrees/include/. kernel/include/
-
-          # Now that headers are copied, remove them from the temp directory
-          rm -rf temp-devicetrees/include
-
-          # Clean up the old vendor placeholder in the kernel source
           rm -rf kernel/arch/arm64/boot/dts/vendor
+          mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-          # Create the vendor directory
-          mkdir -p kernel/arch/arm64/boot/dts/vendor
+      - name: Clone dt-bindings headers
+        run: |
+          if [ ! -d kernel/include/dt-bindings ]; then
+            git clone https://github.com/LineageOS/android_dt-bindings.git \
+              -b lineage-22.2 --depth=1 kernel/include/dt-bindings
+          fi
 
-          # Move the remaining devicetree source files (.dts) into the correct location
-          mv temp-devicetrees/* kernel/arch/arm64/boot/dts/vendor/
+          if [ -f "kernel/include/dt-bindings/clock/qcom,gcc-kalama.h" ]; then
+            echo "✅ dt-bindings headers present"
+          else
+            echo "❌ Missing dt-bindings headers!"
+            find kernel/include -name "*gcc-kalama*" -type f
+            exit 1
+          fi
 
       - name: Clone Toolchains
         run: |
-          # Remove existing toolchains if they exist
           rm -rf mk-clang mk-gcc64 mk-gcc32 tools-lineage || true
-          
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
@@ -51,12 +51,12 @@ jobs:
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           git clone https://android.googlesource.com/platform/external/avb tools/avb
-          
+
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
-          
+
       - name: Build Kernel
         run: |
           cd kernel
@@ -64,13 +64,14 @@ jobs:
           export SUBARCH=arm64
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
-          
+
+          export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
+          export DTC_FLAGS="-I include -I arch/arm64/boot/dts/vendor"
+
           mkdir -p out
           make ARCH=arm64 mrproper
-          
           make ARCH=arm64 O=out pdx234_defconfig
-          
-          # Build kernel
+
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -85,12 +86,15 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
+            DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor" \
+            DTC_FLAGS="-I include -I arch/arm64/boot/dts/vendor" \
             -j$(nproc)
-          
+
           if [ ! -f out/arch/arm64/boot/Image ]; then
             echo "Error: Kernel Image not found!"
             exit 1
           fi
+
           echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
@@ -118,7 +122,7 @@ jobs:
             --os_version 15.0.0 \
             --os_patch_level 2025-07 \
             --output boot.img
-          
+
           if [ ! -f boot.img ]; then
             echo "Error: boot.img not created!"
             exit 1
@@ -128,16 +132,16 @@ jobs:
       - name: Sign Boot Image with LineageOS Keys
         run: |
           git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
-          
+
           openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
-          
+
           python3 tools/avb/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
             --image boot.img \
             --algorithm SHA256_RSA2048 \
             --key testkey.pem
-          
+
           echo "Signed boot image size: $(ls -lh boot.img | awk '{print $5}')"
           python3 tools/avb/avbtool.py info_image --image boot.img
 
@@ -169,3 +173,9 @@ jobs:
           path: |
             kernel/out/**/*.ko
           if-no-files-found: ignore
+
+      - name: Upload Build Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info
+          path: build_info.txt

@@ -98,17 +98,28 @@ jobs:
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
           
+      - name: Find DTB File
+        id: find_dtb
+        run: |
+          DTB_FILE=$(find out/arch/arm64/boot/dts/vendor -name "*.dtb" -print -quit)
+          if [ -z "$DTB_FILE" ]; then
+            echo "Error: No DTB file found in the vendor directory."
+            exit 1
+          fi
+          echo "Found DTB file: $DTB_FILE"
+          echo "dtb_path=$DTB_FILE" >> $GITHUB_OUTPUT
+
       - name: Create Boot Image
         run: |
           # Check kernel image exists
           ls -la ./out/arch/arm64/boot/Image
           
-          # Create boot.img using mkbootimg (Android 15 style with header_version 4)
-          # Add OS version and patch level to match LineageOS format
+          # Use the DTB file found in the previous step
           python3 tools/mkbootimg/mkbootimg.py \
             --header_version 4 \
             --kernel ./out/arch/arm64/boot/Image \
             --pagesize 4096 \
+            --dtb ${{ steps.find_dtb.outputs.dtb_path }} \
             --os_version 15.0.0 \
             --os_patch_level 2025-07 \
             --output boot.img

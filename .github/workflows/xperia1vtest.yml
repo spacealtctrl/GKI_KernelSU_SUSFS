@@ -55,6 +55,8 @@ jobs:
           
           # FORCE COPY 1: Merge into kernel/include/dt-bindings/bindings/
           echo "Copying to dt-bindings/bindings..."
+          # Remove existing file/symlink if it exists
+          rm -rf kernel/include/dt-bindings/bindings
           mkdir -p kernel/include/dt-bindings/bindings
           cp -rf devicetrees-temp/bindings/* kernel/include/dt-bindings/bindings/ 2>/dev/null || true
           echo "Files in dt-bindings/bindings: $(find kernel/include/dt-bindings/bindings -name "*.h" | wc -l)"
@@ -68,6 +70,7 @@ jobs:
           
           # FORCE COPY 3: Copy to vendor dts location
           echo "Copying to vendor/bindings..."
+          rm -rf kernel/arch/arm64/boot/dts/vendor/bindings
           mkdir -p kernel/arch/arm64/boot/dts/vendor/bindings
           cp -rf devicetrees-temp/bindings/* kernel/arch/arm64/boot/dts/vendor/bindings/ 2>/dev/null || true
           echo "Files in vendor/bindings: $(find kernel/arch/arm64/boot/dts/vendor/bindings -name "*.h" | wc -l)"
@@ -76,9 +79,14 @@ jobs:
           echo "Merging kernel's existing dt-bindings..."
           if [ -d "kernel/include/dt-bindings" ]; then
             # Copy any existing kernel dt-bindings to all binding locations
-            find kernel/include/dt-bindings -name "*.h" -exec cp {} kernel/include/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -name "*.h" -exec cp {} kernel/include/dt-bindings/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -name "*.h" -exec cp {} kernel/arch/arm64/boot/dts/vendor/bindings/ \; 2>/dev/null || true
+            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/include/bindings/ \; 2>/dev/null || true
+            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/include/dt-bindings/bindings/ \; 2>/dev/null || true
+            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/arch/arm64/boot/dts/vendor/bindings/ \; 2>/dev/null || true
+            
+            # Also copy subdirectories from dt-bindings
+            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/include/bindings/ \; 2>/dev/null || true
+            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/include/dt-bindings/bindings/ \; 2>/dev/null || true
+            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/arch/arm64/boot/dts/vendor/bindings/ \; 2>/dev/null || true
           fi
           
           # Clean up temp directory

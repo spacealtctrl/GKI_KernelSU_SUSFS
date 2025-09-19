@@ -10,65 +10,21 @@ jobs:
         uses: actions/cache@v3
         with:
           path: kernel
-          key: kernel-source-sm8550-with-devicetrees
+          key: kernel-source-sm8550
           
-      - name: Checkout Kernel Source and Setup Devicetrees
+      - name: Checkout Kernel Source
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         run: |
           # Clone kernel into 'kernel' subdirectory with full history
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
           
-          # Now clone devicetrees INTO the kernel directory
-          cd kernel
-          rm -rf arch/arm64/boot/dts/vendor
-          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
-          
-          # Verify the exact structure
-          echo "=== Verifying devicetree structure ==="
-          echo "Contents of arch/arm64/boot/dts/vendor/:"
-          ls -la arch/arm64/boot/dts/vendor/
-          
-          echo -e "\n=== Checking for sony directory ==="
-          if [ ! -d "arch/arm64/boot/dts/vendor/sony" ]; then
-            echo "ERROR: vendor/sony directory missing!"
-            exit 1
-          fi
-          ls -la arch/arm64/boot/dts/vendor/sony/
-          
-          echo -e "\n=== Checking for qcom directory ==="
-          if [ ! -d "arch/arm64/boot/dts/vendor/qcom" ]; then
-            echo "ERROR: vendor/qcom directory missing!"
-            exit 1
-          fi
-          echo "qcom directory exists with $(ls arch/arm64/boot/dts/vendor/qcom/ | wc -l) items"
-          
-          echo -e "\n=== Checking for specific problem file ==="
-          if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
-            echo "ERROR: kalama-audio.dtsi not found!"
-            exit 1
-          fi
-          echo "Found kalama-audio.dtsi"
-          
-          # Copy the bindings to where the kernel build system expects them
-          echo -e "\n=== Copying bindings to include/dt-bindings/ ==="
-          cp -r arch/arm64/boot/dts/vendor/bindings/* include/dt-bindings/
-          
-          # Verify bindings are copied correctly
-          if [ ! -f "include/dt-bindings/qcom,audio-ext-clk.h" ]; then
-            echo "ERROR: qcom,audio-ext-clk.h not copied correctly!"
-            exit 1
-          fi
-          
-          echo "SUCCESS: All devicetree components verified and bindings copied"
-          
       - name: Save Kernel Source to Cache
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v3
         with:
           path: kernel
-          key: kernel-source-sm8550-with-devicetrees
+          key: kernel-source-sm8550
 
       - name: Check Toolchains Cache
         id: cache-toolchains
@@ -104,6 +60,19 @@ jobs:
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           git clone https://android.googlesource.com/platform/external/avb tools/avb
+          
+      - name: Setup device trees
+        run: |
+          # Clone devicetrees to root level
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
+            -b lineage-22.2 --depth=1 devicetrees
+          
+          # Remove existing vendor and create symlink
+          rm -rf kernel/arch/arm64/boot/dts/vendor || true
+          ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
+          
+          # Verify symlink works
+          ls -la kernel/arch/arm64/boot/dts/vendor/
           
       - name: Install Build Dependencies
         run: |

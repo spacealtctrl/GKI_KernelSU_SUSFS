@@ -8,43 +8,37 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          # 📍 CORRECTED REPOSITORY HERE 📍
+          # Clones from the fork with the correct defconfig
           repository: spacealtctrl/android_kernel_sony_sm8550
           fetch-depth: 0
           
       - name: Clone Toolchains
         run: |
+          # Use the official LineageOS toolchains from their specific branches
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
           
+          # Clone the LineageOS prebuilt tools from the master branch
+          git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b master tools-lineage
+          
       - name: Clone mkbootimg and avbtool
         run: |
-          # Clone mkbootimg tools
+          # Clone mkbootimg tools from AOSP
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
-          # Clone avb tools exactly as specified
+          # Clone avb tools from AOSP
           git clone https://android.googlesource.com/platform/external/avb tools/avb
           
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
-          
-          # Ensure the parent directory exists
           mkdir -p arch/arm64/boot/dts
-          
-          # Remove any existing vendor folder
           rm -rf arch/arm64/boot/dts/vendor
-          
-          # Clone devicetrees INTO a folder named 'vendor'
-          # This creates arch/arm64/boot/dts/vendor/ with the devicetree contents inside
+          # Clone the devicetrees into the correct vendor subdirectory
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
-          
-          # Verify the structure - should show qcom/ and other folders inside vendor/
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
-          
-          # Check for actual .dts files
           echo "DTS files found:"
           find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
           
@@ -55,24 +49,19 @@ jobs:
           
       - name: Build Kernel
         run: |
-          # Set up environment
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
           
-          # Create output directory
           mkdir -p out
-          
-          # Clean build environment
           make ARCH=arm64 mrproper
           
-          # 📍 CORRECT CONFIGURATION STEP 📍
-          # Use the specific defconfig for your device. This will load all necessary
-          # kernel configuration options, including those for hardware drivers.
+          # Use the specific defconfig for your device.
           make ARCH=arm64 O=out pdx234_defconfig
           
-          # Build kernel with Clang and LLVM tools as specified
+          # Build kernel with all necessary tools and flags
+          # The DTC_INCLUDE_PATH fixes the DTS binding error by pointing to the correct location
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -87,23 +76,21 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
+            DTC_INCLUDE_PATH=${{ github.workspace }}/arch/arm64/boot/dts/vendor \
             -j$(nproc)
           
-          # Verify kernel was built
           if [ ! -f out/arch/arm64/boot/Image ]; then
             echo "Error: Kernel Image not found!"
             exit 1
           fi
-          
           echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
-          
-          # Check if DTBs were built
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
           
       - name: Find DTB File
         id: find_dtb
         run: |
+          # Correctly locate the DTB file for boot image creation
           DTB_FILE=$(find out/arch/arm64/boot/dts/vendor -name "*.dtb" -print -quit)
           if [ -z "$DTB_FILE" ]; then
             echo "Error: No DTB file found in the vendor directory."
@@ -114,10 +101,8 @@ jobs:
 
       - name: Create Boot Image
         run: |
-          # Check kernel image exists
           ls -la ./out/arch/arm64/boot/Image
-          
-          # Use the DTB file found in the previous step
+          # Use mkbootimg to create the unsigned boot.img
           python3 tools/mkbootimg/mkbootimg.py \
             --header_version 4 \
             --kernel ./out/arch/arm64/boot/Image \
@@ -127,12 +112,10 @@ jobs:
             --os_patch_level 2025-07 \
             --output boot.img
           
-          # Verify boot image was created
           if [ ! -f boot.img ]; then
             echo "Error: boot.img not created!"
             exit 1
           fi
-          
           echo "Unsigned boot image size: $(ls -lh boot.img | awk '{print $5}')"
           
       - name: Sign Boot Image with LineageOS Keys
@@ -141,7 +124,6 @@ jobs:
           git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
           
           # Convert PK8 key to PEM format for AVB
-          # First, we need to convert pk8 to pem
           openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
           
           # Sign the boot image with AVB using LineageOS test key

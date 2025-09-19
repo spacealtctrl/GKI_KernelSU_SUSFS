@@ -17,7 +17,6 @@ jobs:
 
       - name: Clone Devicetrees and Merge Bindings
         run: |
-          # Clone devicetrees
           rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
@@ -29,15 +28,10 @@ jobs:
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-          # Copy bindings directly into kernel/include/dt-bindings so DTC can find headers
-          rm -rf kernel/include/dt-bindings || true
+          # Copy dt-bindings directly so kernel finds headers
+          rm -rf kernel/include/dt-bindings
           cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
 
-          # Verify critical header exists
-          if [ ! -f kernel/include/dt-bindings/clock/qcom,gcc-kalama.h ]; then
-            echo "Error: dt-bindings header not found!"
-            exit 1
-          fi
           echo "All DTS and bindings are in place."
 
       - name: Clone Toolchains
@@ -60,36 +54,23 @@ jobs:
 
       - name: Build Kernel
         run: |
-          cd kernel
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
-          export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
-
-          # Force DTC to use the copied bindings folder
-          export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor/bindings"
-          export DTC_FLAGS="-I arch/arm64/boot/dts/vendor/bindings"
+          BASEDIR=$PWD
+          cd $BASEDIR/kernel
 
           mkdir -p out
-          make ARCH=arm64 mrproper
+          make mrproper
           make ARCH=arm64 O=out pdx234_defconfig
+
+          export PATH=$BASEDIR/mk-clang/bin:$BASEDIR/mk-gcc64/bin:$BASEDIR/mk-gcc32/bin:$PATH
+          export LD_LIBRARY_PATH=$BASEDIR/mk-clang/lib
 
           make ARCH=arm64 \
             O=out \
-            CC="ccache clang" \
-            HOST_CC="ccache clang" \
-            LD="ld.lld" \
-            HOST_LD="ld.lld" \
-            OBJDUMP="llvm-objdump" \
-            OBJCOPY="llvm-objcopy" \
-            STRIP="llvm-strip" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=${{ github.workspace }}/mk-gcc64/bin/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
-            KCFLAGS="-Wframe-larger-than=15000" \
+            LLVM=1 \
             LLVM_IAS=1 \
-            DTC_INCLUDE="$DTC_INCLUDE" \
-            DTC_FLAGS="$DTC_FLAGS" \
+            CROSS_COMPILE=$BASEDIR/mk-gcc64/bin/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=$BASEDIR/mk-gcc32/bin/arm-linux-androideabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
             -j$(nproc)
 
           if [ ! -f out/arch/arm64/boot/Image ]; then
@@ -97,7 +78,7 @@ jobs:
             exit 1
           fi
 
-          echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
+          echo "Kernel Image built successfully: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
 

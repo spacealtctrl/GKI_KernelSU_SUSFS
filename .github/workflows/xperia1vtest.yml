@@ -18,7 +18,7 @@ jobs:
       - name: Clone and Integrate Devicetrees
         run: |
           rm -rf temp-devicetrees || true
-          git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550-devicetrees.git \
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
@@ -49,7 +49,7 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
 
-          # DTC include paths (include dt-bindings + vendor devicetrees)
+          # DTC include paths (dt-bindings in include + devicetrees vendor)
           export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
           export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
 

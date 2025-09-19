@@ -123,7 +123,7 @@ jobs:
       - name: Sign Boot Image with LineageOS Keys
         run: |
           # Clone LineageOS build repository for test keys
-          git clone https://github.com/LineageOS/android_build -b lineage-22.1 --depth=1 build_keys
+          git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
           
           # Convert PK8 key to PEM format for AVB
           # First, we need to convert pk8 to pem

@@ -14,40 +14,38 @@ jobs:
           repository: LineageOS/android_kernel_sony_sm8550
           fetch-depth: 0
 
-      - name: Install Build Dependencies
+      - name: Clone Toolchains
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git ccache clang lld flex bison libssl-dev bc python3 libelf-dev
-
+          git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
+          git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
+          
       - name: Clone mkbootimg and avbtool
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg mkbootimg_tools
           git clone https://android.googlesource.com/platform/external/avb avb_tools
 
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev
+
       - name: Build Kernel
         env:
           ARCH: arm64
-          CC: ccache clang
-          HOSTCC: ccache clang
-          LD: ld.lld
-          HOST_LD: ld.lld
-          OBJDUMP: llvm-objdump
-          OBJCOPY: llvm-objcopy
-          STRIP: llvm-strip
+          SUBARCH: arm64
+          CLANG_TRIPLE: aarch64-linux-gnu-
+          CROSS_COMPILE: ${{ github.workspace }}/mk-gcc93/bin/aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: ${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi-
+          PATH: ${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:${{ github.workspace }}/mk-gcc93/bin:${{ env.PATH }}
+          LD_LIBRARY_PATH: ${{ github.workspace }}/mk-clang/lib
           O: out
         run: |
-          # Create a directory for the output artifacts
           mkdir -p $O
-          
-          # Clean the source tree from previous builds
           make mrproper
-          
-          # Configure the kernel using the GKI defconfig
           make gki_defconfig
-          
-          # Start the actual kernel compilation, using all available CPU threads
           make -j$(nproc)
-          
+
       - name: Create Boot Image
         run: |
           # Generate a dummy ramdisk for the boot image
@@ -78,3 +76,4 @@ jobs:
         with:
           name: boot-image
           path: boot.img
+```eof

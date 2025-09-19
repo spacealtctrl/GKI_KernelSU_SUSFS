@@ -20,45 +20,13 @@ jobs:
           rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
-          
+
           # Remove the existing vendor placeholder/symlink in kernel
           rm -rf kernel/arch/arm64/boot/dts/vendor
-          
+
           # Move the devicetrees to be the vendor directory
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
-          
-          # FORCE METHOD 1: Copy bindings everywhere they might be needed
-          echo "Forcing bindings into all possible locations..."
-          
-          # Copy to dt-bindings with bindings subdirectory
-          mkdir -p kernel/include/dt-bindings/bindings
-          cp -r kernel/arch/arm64/boot/dts/vendor/bindings/* kernel/include/dt-bindings/bindings/
-          
-          # Copy to include root
-          mkdir -p kernel/include/bindings
-          cp -r kernel/arch/arm64/boot/dts/vendor/bindings/* kernel/include/bindings/
-          
-          # FORCE METHOD 2: Modify the Makefile.lib to add vendor bindings to DTC include path
-          echo "Patching Makefile.lib to force vendor bindings inclusion..."
-          sed -i 's|DTC_INCLUDE.*:=.*|& $(srctree)/arch/arm64/boot/dts/vendor|' kernel/scripts/Makefile.lib
-          
-          # Show the patch
-          echo "Makefile.lib DTC_INCLUDE line after patch:"
-          grep "DTC_INCLUDE" kernel/scripts/Makefile.lib || echo "DTC_INCLUDE not found, adding it..."
-          
-          # If DTC_INCLUDE doesn't exist, add it before dtc command
-          if ! grep -q "DTC_INCLUDE" kernel/scripts/Makefile.lib; then
-            sed -i '/cmd_dtc.*=/i DTC_INCLUDE := $(srctree)/include $(srctree)/arch/arm64/boot/dts/vendor' kernel/scripts/Makefile.lib
-          fi
-          
-          # FORCE METHOD 3: Create a wrapper script for DTC
-          echo "Creating DTC wrapper to force include paths..."
-          cat > kernel/dtc-wrapper.sh << 'EOF'
-          #!/bin/bash
-          # Force add vendor bindings to include path
-          exec /usr/bin/dtc -I dts -O dtb -i arch/arm64/boot/dts/vendor "$@"
-          EOF
-          chmod +x kernel/dtc-wrapper.sh
+                   
           
           # Verify files are in place
           echo "Verification:"
@@ -72,7 +40,6 @@ jobs:
             find kernel -name "*audio-ext-clk*" -type f
           fi
           
-          echo "Devicetrees forcefully integrated into kernel source tree"
 
       - name: Clone Toolchains
         run: |

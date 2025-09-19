@@ -28,9 +28,13 @@ jobs:
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-          # Copy dt-bindings directly so kernel finds headers
+          # Copy dt-bindings to the standard location
           rm -rf kernel/include/dt-bindings
           cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
+          
+          # Create a symlink for 'bindings' path that DTS files expect
+          # This fixes the include path issue
+          ln -sf dt-bindings kernel/include/bindings
 
           echo "All DTS and bindings are in place."
 

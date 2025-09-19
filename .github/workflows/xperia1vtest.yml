@@ -32,9 +32,13 @@ jobs:
           rm -rf kernel/include/dt-bindings
           cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
           
-          # Create a symlink for 'bindings' path that DTS files expect
-          # This fixes the include path issue
-          ln -sf dt-bindings kernel/include/bindings
+          # ALSO create a copy at 'bindings' path (not symlink for out-of-tree builds)
+          cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/bindings
+          
+          # For out-of-tree builds, also ensure bindings are in arch includes
+          mkdir -p kernel/arch/arm64/include
+          cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/arch/arm64/include/bindings
+          cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/arch/arm64/include/dt-bindings
 
           echo "All DTS and bindings are in place."
 

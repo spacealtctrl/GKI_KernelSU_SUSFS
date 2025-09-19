@@ -24,20 +24,9 @@ jobs:
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-      - name: Clone dt-bindings headers
-        run: |
-          if [ ! -d kernel/include/dt-bindings ]; then
-            git clone https://github.com/LineageOS/android_dt-bindings.git \
-              -b lineage-22.2 --depth=1 kernel/include/dt-bindings
-          fi
-
-          if [ -f "kernel/include/dt-bindings/clock/qcom,gcc-kalama.h" ]; then
-            echo "✅ dt-bindings headers present"
-          else
-            echo "❌ Missing dt-bindings headers!"
-            find kernel/include -name "*gcc-kalama*" -type f
-            exit 1
-          fi
+          # Symlink include/bindings to vendor/bindings so kernel reads headers from devicetrees
+          rm -rf kernel/include/bindings
+          ln -s ../arch/arm64/boot/dts/vendor/bindings kernel/include/bindings
 
       - name: Clone Toolchains
         run: |
@@ -65,8 +54,9 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
 
+          # DTC include paths (includes symlinked bindings + vendor .dts)
           export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
-          export DTC_FLAGS="-I include -I arch/arm64/boot/dts/vendor"
+          export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
 
           mkdir -p out
           make ARCH=arm64 mrproper
@@ -87,7 +77,7 @@ jobs:
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
             DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor" \
-            DTC_FLAGS="-I include -I arch/arm64/boot/dts/vendor" \
+            DTC_FLAGS="-I arch/arm64/boot/dts/vendor" \
             -j$(nproc)
 
           if [ ! -f out/arch/arm64/boot/Image ]; then
@@ -132,16 +122,13 @@ jobs:
       - name: Sign Boot Image with LineageOS Keys
         run: |
           git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
-
           openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
-
           python3 tools/avb/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
             --image boot.img \
             --algorithm SHA256_RSA2048 \
             --key testkey.pem
-
           echo "Signed boot image size: $(ls -lh boot.img | awk '{print $5}')"
           python3 tools/avb/avbtool.py info_image --image boot.img
 

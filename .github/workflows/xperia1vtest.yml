@@ -83,6 +83,7 @@ jobs:
             CROSS_COMPILE=${{ github.workspace }}/mk-gcc64/bin/aarch64-linux-android- \
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
+            LLVM_IAS=1 \
             -j$(nproc)
           
           # Verify kernel was built

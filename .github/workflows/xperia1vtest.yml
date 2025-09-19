@@ -5,56 +5,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Kernel Source Cache
-        id: cache-kernel
-        uses: actions/cache@v3
-        with:
-          path: kernel
-          key: kernel-source-sm8550
-          
       - name: Checkout Kernel Source
-        if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         run: |
+          # Remove existing kernel directory if it exists
+          rm -rf kernel || true
+          
           # Clone kernel into 'kernel' subdirectory with full history
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
-          
-      - name: Save Kernel Source to Cache
-        if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v3
-        with:
-          path: kernel
-          key: kernel-source-sm8550
-
-      - name: Check Toolchains Cache
-        id: cache-toolchains
-        uses: actions/cache@v3
-        with:
-          path: |
-            mk-clang
-            mk-gcc64
-            mk-gcc32
-            tools-lineage
-          key: toolchains-lineage-22.2
 
       - name: Clone Toolchains
-        if: ${{ steps.cache-toolchains.outputs.cache-hit != 'true' }}
         run: |
+          # Remove existing toolchains if they exist
+          rm -rf mk-clang mk-gcc64 mk-gcc32 tools-lineage || true
+          
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
           git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b lineage-22.2 tools-lineage
-          
-      - name: Save Toolchains to Cache
-        if: ${{ steps.cache-toolchains.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v3
-        with:
-          path: |
-            mk-clang
-            mk-gcc64
-            mk-gcc32
-            tools-lineage
-          key: toolchains-lineage-22.2
 
       - name: Clone mkbootimg and avbtool
         run: |
@@ -82,14 +50,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
-          
-      - name: Setup ccache
-        uses: actions/cache@v3
-        with:
-          path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('**/pdx234_defconfig') }}
-          restore-keys: |
-            ccache-${{ runner.os }}-
           
       - name: Build Kernel
         run: |

@@ -64,21 +64,31 @@ jobs:
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
-          # Remove the existing vendor directory if it exists
+          # Force remove the existing vendor directory/file/symlink
           rm -rf arch/arm64/boot/dts/vendor
           
-          # Clone the devicetrees directly into the kernel source tree
+          # Clone the devicetrees directly into the vendor directory
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           
+          # Verify the devicetrees were cloned correctly
+          echo "Verifying devicetree clone..."
+          if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
+            echo "ERROR: Devicetrees not cloned correctly!"
+            echo "Contents of arch/arm64/boot/dts/:"
+            ls -la arch/arm64/boot/dts/
+            echo "Contents of vendor (if exists):"
+            ls -la arch/arm64/boot/dts/vendor/ || echo "vendor directory doesn't exist"
+            exit 1
+          fi
+          
+          echo "SUCCESS: kalama-audio.dtsi found at:"
+          ls -la arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi
+          
           echo "Devicetree structure:"
-          ls -la arch/arm64/boot/dts/vendor/
-          echo "Checking qcom directory:"
-          ls -la arch/arm64/boot/dts/vendor/qcom/ | head -10
-          echo "DTS files found:"
-          find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
-          echo "Checking for include files in kernel tree:"
-          find . -name "*audio-ext-clk*" -type f 2>/dev/null | head -5 || echo "No audio-ext-clk files found"
+          ls -la arch/arm64/boot/dts/vendor/ | head -20
+          echo "Audio directory contents:"
+          ls -la arch/arm64/boot/dts/vendor/qcom/audio/ | head -10
           
       - name: Install Build Dependencies
         run: |

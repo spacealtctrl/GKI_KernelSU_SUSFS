@@ -28,12 +28,16 @@ jobs:
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
+          # Create symlink so kernel finds dt-bindings headers
+          rm -rf kernel/include/dt-bindings
+          ln -s ../arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
+
           # Verify critical header exists
-          if [ ! -f kernel/arch/arm64/boot/dts/vendor/bindings/clock/qcom,gcc-kalama.h ]; then
+          if [ ! -f kernel/include/dt-bindings/clock/qcom,gcc-kalama.h ]; then
             echo "Error: dt-bindings header not found in vendor!"
             exit 1
           fi
-          echo "All DTS and bindings are in place."
+          echo "All DTS and bindings are in place. Symlink is correct."
 
       - name: Clone Toolchains
         run: |

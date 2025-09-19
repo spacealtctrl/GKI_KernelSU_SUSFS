@@ -25,13 +25,26 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           
+          # Create symbolic links for the bindings directory so DTC can find include files
+          # The devicetree bindings need to be accessible from the kernel include path
+          ln -sf ${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor/bindings ${{ github.workspace }}/kernel/include/dt-bindings/bindings
+          
           # Verify the setup
           echo "Verifying devicetree integration..."
           if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
             echo "ERROR: Devicetrees not integrated correctly!"
             exit 1
           fi
+          
+          # Verify bindings are accessible
+          if [ ! -f "arch/arm64/boot/dts/vendor/bindings/qcom,audio-ext-clk.h" ]; then
+            echo "ERROR: Bindings not found!"
+            exit 1
+          fi
+          
           echo "SUCCESS: Devicetrees integrated into kernel source"
+          echo "Bindings directory contents:"
+          ls -la arch/arm64/boot/dts/vendor/bindings/ | head -10
           
       - name: Save Kernel Source to Cache
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
@@ -80,6 +93,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
           
+      - name: Setup ccache
+        uses: actions/cache@v3
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/pdx234_defconfig') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+          
       - name: Build Kernel
         run: |
           cd kernel
@@ -88,11 +109,15 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
           
+          # Add the vendor bindings to the include path for DTC
+          export DTC_INCLUDE=${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor
+          
           mkdir -p out
           make ARCH=arm64 mrproper
           
           make ARCH=arm64 O=out pdx234_defconfig
           
+          # Build with proper include paths for devicetree compilation
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -107,7 +132,7 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_EXT_FLAGS="-I${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor" \
+            DTC_FLAGS="-I ${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor" \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

@@ -23,11 +23,19 @@ jobs:
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           # Clone avb tools exactly as specified
           git clone https://android.googlesource.com/platform/external/avb tools/avb
+          echo "Cloning Sony SM8550 devicetrees repository..."
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
+            -b lineage-22.2 --depth=1 devicetrees
           
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
+
+      - name: Setup device trees
+        run: |
+          rm -rf kernel/arch/arm64/boot/dts/vendor || true
+          ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor || true
           
       - name: Build Kernel
         run: |

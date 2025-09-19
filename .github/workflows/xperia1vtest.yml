@@ -25,26 +25,43 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           
-          # Create symbolic links for the bindings directory so DTC can find include files
-          # The devicetree bindings need to be accessible from the kernel include path
-          ln -sf ${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor/bindings ${{ github.workspace }}/kernel/include/dt-bindings/bindings
+          # Verify the exact structure
+          echo "=== Verifying devicetree structure ==="
+          echo "Contents of arch/arm64/boot/dts/vendor/:"
+          ls -la arch/arm64/boot/dts/vendor/
           
-          # Verify the setup
-          echo "Verifying devicetree integration..."
+          echo -e "\n=== Checking for sony directory ==="
+          if [ ! -d "arch/arm64/boot/dts/vendor/sony" ]; then
+            echo "ERROR: vendor/sony directory missing!"
+            exit 1
+          fi
+          ls -la arch/arm64/boot/dts/vendor/sony/
+          
+          echo -e "\n=== Checking for qcom directory ==="
+          if [ ! -d "arch/arm64/boot/dts/vendor/qcom" ]; then
+            echo "ERROR: vendor/qcom directory missing!"
+            exit 1
+          fi
+          echo "qcom directory exists with $(ls arch/arm64/boot/dts/vendor/qcom/ | wc -l) items"
+          
+          echo -e "\n=== Checking for specific problem file ==="
           if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
-            echo "ERROR: Devicetrees not integrated correctly!"
+            echo "ERROR: kalama-audio.dtsi not found!"
+            exit 1
+          fi
+          echo "Found kalama-audio.dtsi"
+          
+          # Copy the bindings to where the kernel build system expects them
+          echo -e "\n=== Copying bindings to include/dt-bindings/ ==="
+          cp -r arch/arm64/boot/dts/vendor/bindings/* include/dt-bindings/
+          
+          # Verify bindings are copied correctly
+          if [ ! -f "include/dt-bindings/qcom,audio-ext-clk.h" ]; then
+            echo "ERROR: qcom,audio-ext-clk.h not copied correctly!"
             exit 1
           fi
           
-          # Verify bindings are accessible
-          if [ ! -f "arch/arm64/boot/dts/vendor/bindings/qcom,audio-ext-clk.h" ]; then
-            echo "ERROR: Bindings not found!"
-            exit 1
-          fi
-          
-          echo "SUCCESS: Devicetrees integrated into kernel source"
-          echo "Bindings directory contents:"
-          ls -la arch/arm64/boot/dts/vendor/bindings/ | head -10
+          echo "SUCCESS: All devicetree components verified and bindings copied"
           
       - name: Save Kernel Source to Cache
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
@@ -109,15 +126,12 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
           
-          # Add the vendor bindings to the include path for DTC
-          export DTC_INCLUDE=${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor
-          
           mkdir -p out
           make ARCH=arm64 mrproper
           
           make ARCH=arm64 O=out pdx234_defconfig
           
-          # Build with proper include paths for devicetree compilation
+          # Build kernel with standard settings - bindings are now in the right place
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -132,7 +146,6 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_FLAGS="-I ${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor" \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

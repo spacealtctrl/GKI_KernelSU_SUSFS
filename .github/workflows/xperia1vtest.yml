@@ -26,19 +26,26 @@ jobs:
           
       - name: Setup device trees
         run: |
-          # Clone devicetrees directly as the vendor folder
           echo "Setting up Sony SM8550 devicetrees..."
+          
+          # Ensure the parent directory exists
+          mkdir -p arch/arm64/boot/dts
           
           # Remove any existing vendor folder
           rm -rf arch/arm64/boot/dts/vendor
           
-          # Clone devicetrees directly into the vendor location
+          # Clone devicetrees INTO a folder named 'vendor'
+          # This creates arch/arm64/boot/dts/vendor/ with the devicetree contents inside
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           
-          # Verify the structure
+          # Verify the structure - should show qcom/ and other folders inside vendor/
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
+          
+          # Check for actual .dts files
+          echo "DTS files found:"
+          find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
           
       - name: Install Build Dependencies
         run: |
@@ -162,23 +169,6 @@ jobs:
           path: |
             out/**/*.ko
           if-no-files-found: ignore
-          
-      - name: Create Release Info
-        run: |
-          echo "# Build Information" > build_info.txt
-          echo "Date: $(date)" >> build_info.txt
-          echo "Kernel Version: $(cat out/include/config/kernel.release)" >> build_info.txt
-          echo "" >> build_info.txt
-          echo "## File Sizes:" >> build_info.txt
-          echo "- Kernel Image: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')" >> build_info.txt
-          echo "- Boot Image: $(ls -lh boot.img | awk '{print $5}')" >> build_info.txt
-          echo "" >> build_info.txt
-          echo "## Build Configuration:" >> build_info.txt
-          echo "- Architecture: arm64" >> build_info.txt
-          echo "- Toolchain: Clang + LLVM" >> build_info.txt
-          echo "- Config: gki_defconfig" >> build_info.txt
-          echo "- OS Version: 15.0.0" >> build_info.txt
-          echo "- Security Patch: 2025-07" >> build_info.txt
           
       - name: Upload Build Info
         uses: actions/upload-artifact@v4

@@ -107,6 +107,7 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
+            DTC_EXT_FLAGS="-I${{ github.workspace }}/kernel/arch/arm64/boot/dts/vendor" \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

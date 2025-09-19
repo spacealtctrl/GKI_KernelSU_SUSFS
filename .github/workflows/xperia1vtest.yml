@@ -20,8 +20,13 @@ jobs:
           rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
+
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
+
+          # Create symlink for dt-bindings so kernel finds headers
+          rm -rf kernel/include/dt-bindings
+          ln -s ../arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
 
       - name: Clone Toolchains
         run: |
@@ -49,7 +54,7 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
 
-          # DTC include paths (dt-bindings in include + devicetrees vendor)
+          # DTC include paths
           export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
           export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
 

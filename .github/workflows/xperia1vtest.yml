@@ -15,9 +15,9 @@ jobs:
       - name: Checkout Kernel Source and Setup Devicetrees
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         run: |
-          # Clone kernel into 'kernel' subdirectory
+          # Clone kernel into 'kernel' subdirectory with full history
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
-            -b lineage-22.2 --depth=0 kernel
+            -b lineage-22.2 kernel
           
           # Now clone devicetrees INTO the kernel directory
           cd kernel

@@ -23,21 +23,28 @@ jobs:
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           # Clone avb tools exactly as specified
           git clone https://android.googlesource.com/platform/external/avb tools/avb
-          echo "Cloning Sony SM8550 devicetrees repository..."
+          
+      - name: Setup device trees
+        run: |
+          # Clone devicetrees directly as the vendor folder
+          echo "Setting up Sony SM8550 devicetrees..."
+          
+          # Remove any existing vendor folder
+          rm -rf arch/arm64/boot/dts/vendor
+          
+          # Clone devicetrees directly into the vendor location
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 devicetrees
+            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
+          
+          # Verify the structure
+          echo "Devicetree structure:"
+          ls -la arch/arm64/boot/dts/vendor/
           
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
 
-      - name: Setup device trees
-        run: |
-          # Fix the symlink path - remove 'kernel/' prefix
-          rm -rf arch/arm64/boot/dts/vendor || true
-          ln -s $(realpath devicetrees) arch/arm64/boot/dts/vendor
-          
       - name: Build Kernel
         run: |
           # Set up environment
@@ -78,6 +85,10 @@ jobs:
           fi
           
           echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
+          
+          # Check if DTBs were built
+          echo "Checking for built DTB files..."
+          find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
           
       - name: Create Boot Image
         run: |

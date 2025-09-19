@@ -9,22 +9,36 @@ jobs:
         id: cache-kernel
         uses: actions/cache@v3
         with:
-          path: .
-          key: kernel-source-sm8550
+          path: kernel
+          key: kernel-source-sm8550-with-devicetrees
           
-      - name: Checkout Kernel Source
+      - name: Checkout Kernel Source and Setup Devicetrees
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
-        uses: actions/checkout@v4
-        with:
-          repository: spacealtctrl/android_kernel_sony_sm8550
-          fetch-depth: 0
+        run: |
+          # Clone kernel into 'kernel' subdirectory
+          git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
+            -b lineage-22.2 --depth=0 kernel
+          
+          # Now clone devicetrees INTO the kernel directory
+          cd kernel
+          rm -rf arch/arm64/boot/dts/vendor
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
+            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
+          
+          # Verify the setup
+          echo "Verifying devicetree integration..."
+          if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
+            echo "ERROR: Devicetrees not integrated correctly!"
+            exit 1
+          fi
+          echo "SUCCESS: Devicetrees integrated into kernel source"
           
       - name: Save Kernel Source to Cache
         if: ${{ steps.cache-kernel.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v3
         with:
-          path: .
-          key: kernel-source-sm8550
+          path: kernel
+          key: kernel-source-sm8550-with-devicetrees
 
       - name: Check Toolchains Cache
         id: cache-toolchains
@@ -61,35 +75,6 @@ jobs:
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           git clone https://android.googlesource.com/platform/external/avb tools/avb
           
-      - name: Setup device trees
-        run: |
-          echo "Setting up Sony SM8550 devicetrees..."
-          # Force remove the existing vendor directory/file/symlink
-          rm -rf arch/arm64/boot/dts/vendor
-          
-          # Clone the devicetrees directly into the vendor directory
-          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
-          
-          # Verify the devicetrees were cloned correctly
-          echo "Verifying devicetree clone..."
-          if [ ! -f "arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi" ]; then
-            echo "ERROR: Devicetrees not cloned correctly!"
-            echo "Contents of arch/arm64/boot/dts/:"
-            ls -la arch/arm64/boot/dts/
-            echo "Contents of vendor (if exists):"
-            ls -la arch/arm64/boot/dts/vendor/ || echo "vendor directory doesn't exist"
-            exit 1
-          fi
-          
-          echo "SUCCESS: kalama-audio.dtsi found at:"
-          ls -la arch/arm64/boot/dts/vendor/qcom/audio/kalama-audio.dtsi
-          
-          echo "Devicetree structure:"
-          ls -la arch/arm64/boot/dts/vendor/ | head -20
-          echo "Audio directory contents:"
-          ls -la arch/arm64/boot/dts/vendor/qcom/audio/ | head -10
-          
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
@@ -97,6 +82,7 @@ jobs:
           
       - name: Build Kernel
         run: |
+          cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
@@ -134,20 +120,21 @@ jobs:
       - name: Find DTB File
         id: find_dtb
         run: |
+          cd kernel
           DTB_FILE=$(find out/arch/arm64/boot/dts/vendor -name "*.dtb" -print -quit)
           if [ -z "$DTB_FILE" ]; then
             echo "Error: No DTB file found in the vendor directory."
             exit 1
           fi
           echo "Found DTB file: $DTB_FILE"
-          echo "dtb_path=$DTB_FILE" >> $GITHUB_OUTPUT
+          echo "dtb_path=${{ github.workspace }}/kernel/$DTB_FILE" >> $GITHUB_OUTPUT
 
       - name: Create Boot Image
         run: |
-          ls -la ./out/arch/arm64/boot/Image
+          ls -la kernel/out/arch/arm64/boot/Image
           python3 tools/mkbootimg/mkbootimg.py \
             --header_version 4 \
-            --kernel ./out/arch/arm64/boot/Image \
+            --kernel kernel/out/arch/arm64/boot/Image \
             --pagesize 4096 \
             --dtb ${{ steps.find_dtb.outputs.dtb_path }} \
             --os_version 15.0.0 \
@@ -180,7 +167,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kernel-image
-          path: out/arch/arm64/boot/Image
+          path: kernel/out/arch/arm64/boot/Image
 
       - name: Upload Boot Image
         uses: actions/upload-artifact@v4
@@ -193,8 +180,8 @@ jobs:
         with:
           name: dtb-files
           path: |
-            out/arch/arm64/boot/dts/**/*.dtb
-            out/arch/arm64/boot/dtbo.img
+            kernel/out/arch/arm64/boot/dts/**/*.dtb
+            kernel/out/arch/arm64/boot/dtbo.img
           if-no-files-found: ignore
 
       - name: Upload Kernel Modules
@@ -202,7 +189,7 @@ jobs:
         with:
           name: kernel-modules
           path: |
-            out/**/*.ko
+            kernel/out/**/*.ko
           if-no-files-found: ignore
 
       - name: Upload Build Info

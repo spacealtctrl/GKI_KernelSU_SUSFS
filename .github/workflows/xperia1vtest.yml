@@ -67,21 +67,24 @@ jobs:
           # Remove the existing vendor directory/symlink if it exists
           rm -rf arch/arm64/boot/dts/vendor
           
-          # Clone the devicetrees to a temporary location first
+          # Clone the devicetrees to the root of the workspace
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 sm8550-devicetrees
           
-          # Create the symlink as specified in the instructions
+          # Create the symlink with the correct relative path
+          # From arch/arm64/boot/dts/vendor to workspace root sm8550-devicetrees
           cd arch/arm64/boot/dts/
-          ln -s ../../../../../sm8550-devicetrees vendor
+          ln -s ${{ github.workspace }}/sm8550-devicetrees vendor
           cd ${{ github.workspace }}
           
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/
           echo "Following symlink:"
           ls -la arch/arm64/boot/dts/vendor/
+          echo "Checking qcom directory:"
+          ls -la arch/arm64/boot/dts/vendor/qcom/ | head -10
           echo "DTS files found:"
-          find sm8550-devicetrees -name "*.dts" -type f | head -5 || echo "No .dts files found"
+          find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
           
       - name: Install Build Dependencies
         run: |

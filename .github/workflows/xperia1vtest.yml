@@ -1,19 +1,16 @@
 name: Simple Android Kernel Build
-
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: LineageOS/android_kernel_sony_sm8550
           fetch-depth: 0
-
+          
       - name: Clone Toolchains
         run: |
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
@@ -24,53 +21,66 @@ jobs:
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg mkbootimg_tools
           git clone https://android.googlesource.com/platform/external/avb avb_tools
-
+          
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev
-
+          
       - name: Build Kernel
         env:
           ARCH: arm64
           SUBARCH: arm64
-          CLANG_TRIPLE: aarch64-linux-gnu-
-          CROSS_COMPILE: ${{ github.workspace }}/mk-gcc93/bin/aarch64-linux-gnu-
-          CROSS_COMPILE_ARM32: ${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi-
-          PATH: ${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:${{ github.workspace }}/mk-gcc93/bin:${{ env.PATH }}
+          PATH: ${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:${{ env.PATH }}
           LD_LIBRARY_PATH: ${{ github.workspace }}/mk-clang/lib
-          O: out
         run: |
-          mkdir -p $O
-          make mrproper
-          make gki_defconfig
-          make -j$(nproc)
-
+          # Create output directory
+          mkdir -p out
+          
+          # Clean build environment
+          make ARCH=arm64 mrproper
+          
+          # Configure kernel
+          make ARCH=arm64 O=out gki_defconfig
+          
+          # Build kernel with Clang and LLVM tools as specified
+          make ARCH=arm64 \
+            O=out \
+            CC="ccache clang" \
+            HOST_CC="ccache clang" \
+            LD="ld.lld" \
+            HOST_LD="ld.lld" \
+            OBJDUMP="llvm-objdump" \
+            OBJCOPY="llvm-objcopy" \
+            STRIP="llvm-strip" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=${{ github.workspace }}/mk-gcc64/bin/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
+            -j$(nproc)
+            
       - name: Create Boot Image
         run: |
-          # Generate a dummy ramdisk for the boot image
-          echo "DUMMY_RAMDISK" > ramdisk.img
-          
-          # Create the boot.img using the compiled kernel and dummy ramdisk
+          # Create boot.img using mkbootimg (Android 15 style with header_version 4)
           python3 ./mkbootimg_tools/mkbootimg.py \
             --header_version 4 \
             --kernel ./out/arch/arm64/boot/Image \
-            --ramdisk ./ramdisk.img \
-            --output boot.img
-
+            --output boot_unsigned.img
+            
       - name: Sign Boot Image
         run: |
-          # Generate a dummy test key for signing
-          python3 -c "import os, subprocess; os.makedirs('test_key', exist_ok=True); with open('test_key/private_key.pem', 'w') as f: f.write(subprocess.run(['openssl', 'genrsa', '2048'], capture_output=True, text=True).stdout)"
+          # Generate a test signing key (for CI purposes)
+          mkdir -p keys
+          openssl genrsa -out keys/private_key.pem 2048
           
-          # Sign the boot image with the generated key
+          # Sign the boot image with AVB
           python3 ./avb_tools/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
-            --image boot.img \
+            --image boot_unsigned.img \
             --algorithm SHA256_RSA2048 \
-            --key ./test_key/private_key.pem
-
+            --key keys/private_key.pem \
+            --output boot.img
+            
       - name: Upload Boot Image
         uses: actions/upload-artifact@v4
         with:

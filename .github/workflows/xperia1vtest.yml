@@ -120,20 +120,22 @@ jobs:
           
           echo "Unsigned boot image size: $(ls -lh boot.img | awk '{print $5}')"
           
-      - name: Sign Boot Image
+      - name: Sign Boot Image with LineageOS Keys
         run: |
-          # Generate a test signing key for AVB
-          mkdir -p keys
-          openssl genrsa -out keys/private_key.pem 2048
+          # Clone LineageOS build repository for test keys
+          git clone https://github.com/LineageOS/android_build -b lineage-22.1 --depth=1 build_keys
           
-          # Sign the boot image with AVB - exactly as in instructions
-          # This modifies boot.img in place
+          # Convert PK8 key to PEM format for AVB
+          # First, we need to convert pk8 to pem
+          openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
+          
+          # Sign the boot image with AVB using LineageOS test key
           python3 tools/avb/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
             --image boot.img \
             --algorithm SHA256_RSA2048 \
-            --key keys/private_key.pem
+            --key testkey.pem
           
           # Verify final boot image
           echo "Signed boot image size: $(ls -lh boot.img | awk '{print $5}')"

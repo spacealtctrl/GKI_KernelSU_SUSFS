@@ -13,6 +13,32 @@ jobs:
           # Clone kernel into 'kernel' subdirectory with full history
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
+            
+      - name: Clone and Integrate Devicetrees
+        run: |
+          # Clone devicetrees to temp folder
+          rm -rf temp-devicetrees || true
+          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
+            -b lineage-22.2 --depth=1 temp-devicetrees
+          
+          # Remove the existing vendor placeholder/symlink in kernel
+          rm -rf kernel/arch/arm64/boot/dts/vendor
+          
+          # Move the devicetrees to be the vendor directory
+          mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
+          
+          # Verify integration
+          echo "Verifying devicetree integration..."
+          echo "Contents of kernel/arch/arm64/boot/dts/vendor:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -10
+          
+          echo "Checking for qcom directory:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/qcom/ | head -5
+          
+          echo "Checking for sony directory:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/sony/ | head -5
+          
+          echo "Devicetrees successfully integrated into kernel source tree"
 
       - name: Clone Toolchains
         run: |
@@ -28,44 +54,6 @@ jobs:
         run: |
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
           git clone https://android.googlesource.com/platform/external/avb tools/avb
-          
-      - name: Setup device trees
-        run: |
-          # Clone devicetrees to root level (remove if exists)
-          rm -rf devicetrees || true
-          git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 devicetrees
-          
-          # Debug: Check what's actually in the bindings directory
-          echo "Contents of devicetrees/bindings/:"
-          ls -la devicetrees/bindings/ | head -20
-          
-          # Check if the file exists in bindings
-          echo "Looking for qcom,audio-ext-clk.h:"
-          find devicetrees -name "*audio-ext-clk*" -type f
-          
-          # Remove existing vendor and create symlink
-          rm -rf kernel/arch/arm64/boot/dts/vendor || true
-          ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
-          
-          # Ensure the dt-bindings directory exists
-          mkdir -p kernel/include/dt-bindings/
-          
-          # Copy bindings to kernel include directory
-          echo "Copying devicetree bindings to kernel include directory..."
-          if [ -d "devicetrees/bindings" ]; then
-            cp -r devicetrees/bindings/* kernel/include/dt-bindings/ || true
-          fi
-          
-          # Check what was copied
-          echo "Contents of kernel/include/dt-bindings/ after copy:"
-          ls -la kernel/include/dt-bindings/ | head -20
-          
-          # Find any audio-related header files
-          echo "Looking for audio-related headers in kernel:"
-          find kernel/include -name "*audio*.h" -type f | head -10
-          
-          echo "Devicetree setup complete"
           
       - name: Install Build Dependencies
         run: |

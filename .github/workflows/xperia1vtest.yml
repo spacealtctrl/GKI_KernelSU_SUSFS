@@ -21,12 +21,19 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
 
+          # Merge kernel dt-bindings into devicetree bindings
+          cp -r kernel/include/dt-bindings/* temp-devicetrees/bindings/
+
+          # Move everything into kernel vendor directory
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-          # Copy bindings folder from the same repo into include/dt-bindings
-          rm -rf kernel/include/dt-bindings || true
-          cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
+          # Verify critical header exists
+          if [ ! -f kernel/arch/arm64/boot/dts/vendor/bindings/clock/qcom,gcc-kalama.h ]; then
+            echo "Error: dt-bindings header not found in vendor!"
+            exit 1
+          fi
+          echo "All DTS and bindings are in place."
 
       - name: Clone Toolchains
         run: |
@@ -87,81 +94,3 @@ jobs:
           echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
-
-      - name: Find DTB File
-        id: find_dtb
-        run: |
-          cd kernel
-          DTB_FILE=$(find out/arch/arm64/boot/dts/vendor -name "*.dtb" -print -quit)
-          if [ -z "$DTB_FILE" ]; then
-            echo "Error: No DTB file found in the vendor directory."
-            exit 1
-          fi
-          echo "Found DTB file: $DTB_FILE"
-          echo "dtb_path=${{ github.workspace }}/kernel/$DTB_FILE" >> $GITHUB_OUTPUT
-
-      - name: Create Boot Image
-        run: |
-          ls -la kernel/out/arch/arm64/boot/Image
-          python3 tools/mkbootimg/mkbootimg.py \
-            --header_version 4 \
-            --kernel kernel/out/arch/arm64/boot/Image \
-            --pagesize 4096 \
-            --dtb ${{ steps.find_dtb.outputs.dtb_path }} \
-            --os_version 15.0.0 \
-            --os_patch_level 2025-07 \
-            --output boot.img
-
-          if [ ! -f boot.img ]; then
-            echo "Error: boot.img not created!"
-            exit 1
-          fi
-          echo "Unsigned boot image size: $(ls -lh boot.img | awk '{print $5}')"
-
-      - name: Sign Boot Image with LineageOS Keys
-        run: |
-          git clone https://github.com/LineageOS/android_build -b lineage-22.2 --depth=1 build_keys
-          openssl pkcs8 -inform DER -nocrypt -in build_keys/target/product/security/testkey.pk8 -out testkey.pem
-          python3 tools/avb/avbtool.py add_hash_footer \
-            --partition_name boot \
-            --partition_size $((64 * 1024 * 1024)) \
-            --image boot.img \
-            --algorithm SHA256_RSA2048 \
-            --key testkey.pem
-          echo "Signed boot image size: $(ls -lh boot.img | awk '{print $5}')"
-          python3 tools/avb/avbtool.py info_image --image boot.img
-
-      - name: Upload Kernel Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-image
-          path: kernel/out/arch/arm64/boot/Image
-
-      - name: Upload Boot Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: boot-image
-          path: boot.img
-
-      - name: Upload DTB/DTBO if exists
-        uses: actions/upload-artifact@v4
-        with:
-          name: dtb-files
-          path: |
-            kernel/out/arch/arm64/boot/dts/**/*.dtb
-            kernel/out/arch/arm64/boot/dtbo.img
-          if-no-files-found: ignore
-
-      - name: Upload Kernel Modules
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-modules
-          path: |
-            kernel/out/**/*.ko
-          if-no-files-found: ignore
-
-      - name: Upload Build Info
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info
-          path: build_info.txt

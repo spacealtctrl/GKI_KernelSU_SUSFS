@@ -36,7 +36,6 @@ jobs:
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
-          # 📍 Corrected: Changed branch from 'master' to 'lineage-22.2'
           git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b lineage-22.2 tools-lineage
           
       - name: Clone mkbootimg and avbtool
@@ -47,10 +46,14 @@ jobs:
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
-          mkdir -p arch/arm64/boot/dts
-          rm -rf arch/arm64/boot/dts/vendor
+          # Clone devicetrees into a temporary directory
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
+            -b lineage-22.2 --depth=1 devicetree
+          
+          # Copy the contents of the devicetree repository to the correct kernel subdirectory
+          mkdir -p arch/arm64/boot/dts/vendor
+          cp -r devicetree/* arch/arm64/boot/dts/vendor/
+          
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "DTS files found:"
@@ -87,7 +90,7 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_INCLUDE_PATH=${{ github.workspace }}/arch/arm64/boot/dts/vendor:${{ github.workspace }}/include/dt-bindings \
+            DTC_INCLUDE_PATH=${{ github.workspace }}/arch/arm64/boot/dts/vendor \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

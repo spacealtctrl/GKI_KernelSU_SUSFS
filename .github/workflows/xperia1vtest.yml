@@ -1,6 +1,7 @@
 name: Simple Android Kernel Build
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -10,36 +11,31 @@ jobs:
           # Remove existing kernel directory if it exists
           rm -rf kernel || true
           
-          # Clone kernel into 'kernel' subdirectory with full history
+          # Clone kernel into 'kernel' subdirectory
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
-            
+
       - name: Clone and Integrate Devicetrees
         run: |
-          # Clone devicetrees to temp folder
-          rm -rf temp-devicetrees || true
+          # Clone devicetrees to a temporary folder
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
 
-          # Remove the existing vendor placeholder/symlink in kernel
+          # Copy the devicetree header files to the main kernel include directory
+          # This is the critical fix. We use '.' to merge contents.
+          cp -r temp-devicetrees/include/. kernel/include/
+
+          # Now that headers are copied, remove them from the temp directory
+          rm -rf temp-devicetrees/include
+
+          # Clean up the old vendor placeholder in the kernel source
           rm -rf kernel/arch/arm64/boot/dts/vendor
 
-          # Move the devicetrees to be the vendor directory
-          mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
-                   
-          
-          # Verify files are in place
-          echo "Verification:"
-          echo "Files in dt-bindings/bindings: $(find kernel/include/dt-bindings/bindings -type f | wc -l)"
-          echo "Files in include/bindings: $(find kernel/include/bindings -type f | wc -l)"
-          
-          if [ -f "kernel/include/bindings/qcom,audio-ext-clk.h" ]; then
-            echo "SUCCESS: Critical file found"
-          else
-            echo "ERROR: Still can't find qcom,audio-ext-clk.h!"
-            find kernel -name "*audio-ext-clk*" -type f
-          fi
-          
+          # Create the vendor directory
+          mkdir -p kernel/arch/arm64/boot/dts/vendor
+
+          # Move the remaining devicetree source files (.dts) into the correct location
+          mv temp-devicetrees/* kernel/arch/arm64/boot/dts/vendor/
 
       - name: Clone Toolchains
         run: |
@@ -69,16 +65,12 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
           
-          # FORCE: Export DTC include paths
-          export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
-          export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
-          
           mkdir -p out
           make ARCH=arm64 mrproper
           
           make ARCH=arm64 O=out pdx234_defconfig
           
-          # Build kernel with FORCED DTC paths
+          # Build kernel
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -93,8 +85,6 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor" \
-            DTC_FLAGS="-I arch/arm64/boot/dts/vendor" \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then
@@ -179,9 +169,3 @@ jobs:
           path: |
             kernel/out/**/*.ko
           if-no-files-found: ignore
-
-      - name: Upload Build Info
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-info
-          path: build_info.txt

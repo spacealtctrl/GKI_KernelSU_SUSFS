@@ -27,23 +27,27 @@ jobs:
           # Move the devicetrees to be the vendor directory
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
           
-          # CRITICAL: Create bindings symlink in kernel include path
-          # The DTC looks for <bindings/...> so we need to preserve the bindings directory structure
-          echo "Setting up bindings in kernel include path..."
+          # Debug: Show what's actually in the bindings directory
+          echo "Contents of vendor/bindings directory:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -20
+          
+          # Create multiple symlinks to ensure DTC can find the bindings
+          echo "Creating symlinks for bindings..."
+          
+          # Method 1: Symlink in dt-bindings
           cd kernel/include/dt-bindings/
           ln -sf ../../arch/arm64/boot/dts/vendor/bindings bindings
           cd ../../../
           
-          # Verify the critical file is accessible
-          if [ -f "kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h" ]; then
-            echo "SUCCESS: qcom,audio-ext-clk.h is accessible via symlink"
-            ls -la kernel/include/dt-bindings/bindings/qcom,audio-ext-clk.h
-          else
-            echo "Checking what's in vendor/bindings:"
-            ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -10
-            echo "Checking symlink:"
-            ls -la kernel/include/dt-bindings/ | grep bindings
-          fi
+          # Method 2: Also symlink in the include root
+          cd kernel/include/
+          ln -sf ../arch/arm64/boot/dts/vendor/bindings bindings
+          cd ../../
+          
+          # Verify symlinks
+          echo "Symlinks created:"
+          ls -la kernel/include/dt-bindings/ | grep bindings
+          ls -la kernel/include/ | grep bindings
           
           echo "Devicetrees successfully integrated into kernel source tree"
 
@@ -75,12 +79,15 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
           
+          # Add DTC include paths for vendor bindings
+          export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
+          
           mkdir -p out
           make ARCH=arm64 mrproper
           
           make ARCH=arm64 O=out pdx234_defconfig
           
-          # Build kernel with standard settings - bindings are now in the right place
+          # Build kernel with DTC_FLAGS to help find bindings
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -95,6 +102,7 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
+            DTC_FLAGS="-I arch/arm64/boot/dts/vendor" \
             -j$(nproc)
           
           if [ ! -f out/arch/arm64/boot/Image ]; then

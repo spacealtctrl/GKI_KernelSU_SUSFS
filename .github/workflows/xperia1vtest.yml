@@ -8,47 +8,47 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          # Clones from the fork with the correct defconfig
-          repository: spacealtctrl/android_kernel_sony_sm8550
+          repository: LineageOS/android_kernel_sony_sm8550
           fetch-depth: 0
-          
+
       - name: Clone Toolchains
         run: |
-          # Use the official LineageOS toolchains from their specific branches
+          # Clang is used as the primary compiler for modern Android kernels
+          # gcc is used for aarch64 and arm32 for compatibility with older code and tools
           git clone https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b -b lineage-20.0 mk-clang
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 -b lineage-19.1 mk-gcc64
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 -b lineage-19.1 mk-gcc32
           
-          # Clone the LineageOS prebuilt tools from the master branch
+          # Clone tools for signing
           git clone https://github.com/LineageOS/android_prebuilts_tools-lineage -b master tools-lineage
-          
+
       - name: Clone mkbootimg and avbtool
         run: |
-          # Clone mkbootimg tools from AOSP
+          # Use the official AOSP versions, as LineageOS bases their own tools on them
           git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools/mkbootimg
-          # Clone avb tools from AOSP
           git clone https://android.googlesource.com/platform/external/avb tools/avb
-          
+
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
           mkdir -p arch/arm64/boot/dts
           rm -rf arch/arm64/boot/dts/vendor
-          # Clone the devicetrees into the correct vendor subdirectory
+          # Clone devicetrees into the correct vendor subdirectory
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           echo "Devicetree structure:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "DTS files found:"
           find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
-          
+
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
-          
+
       - name: Build Kernel
         run: |
+          # Set up environment
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
@@ -57,11 +57,10 @@ jobs:
           mkdir -p out
           make ARCH=arm64 mrproper
           
-          # Use the specific defconfig for your device.
+          # The fix for the defconfig, using the correct one for your device.
           make ARCH=arm64 O=out pdx234_defconfig
           
           # Build kernel with all necessary tools and flags
-          # The DTC_INCLUDE_PATH fixes the DTS binding error by pointing to the correct location
           make ARCH=arm64 \
             O=out \
             CC="ccache clang" \
@@ -86,7 +85,7 @@ jobs:
           echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
           echo "Checking for built DTB files..."
           find out/arch/arm64/boot/dts -name "*.dtb" -type f 2>/dev/null | head -5 || echo "No DTB files found"
-          
+
       - name: Find DTB File
         id: find_dtb
         run: |
@@ -117,7 +116,7 @@ jobs:
             exit 1
           fi
           echo "Unsigned boot image size: $(ls -lh boot.img | awk '{print $5}')"
-          
+
       - name: Sign Boot Image with LineageOS Keys
         run: |
           # Clone LineageOS build repository for test keys
@@ -134,24 +133,21 @@ jobs:
             --algorithm SHA256_RSA2048 \
             --key testkey.pem
           
-          # Verify final boot image
           echo "Signed boot image size: $(ls -lh boot.img | awk '{print $5}')"
-          
-          # Verify AVB signature
           python3 tools/avb/avbtool.py info_image --image boot.img
-          
+
       - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
           name: kernel-image
           path: out/arch/arm64/boot/Image
-          
+
       - name: Upload Boot Image
         uses: actions/upload-artifact@v4
         with:
           name: boot-image
           path: boot.img
-          
+
       - name: Upload DTB/DTBO if exists
         uses: actions/upload-artifact@v4
         with:
@@ -160,7 +156,7 @@ jobs:
             out/arch/arm64/boot/dts/**/*.dtb
             out/arch/arm64/boot/dtbo.img
           if-no-files-found: ignore
-          
+
       - name: Upload Kernel Modules
         uses: actions/upload-artifact@v4
         with:
@@ -168,7 +164,7 @@ jobs:
           path: |
             out/**/*.ko
           if-no-files-found: ignore
-          
+
       - name: Upload Build Info
         uses: actions/upload-artifact@v4
         with:

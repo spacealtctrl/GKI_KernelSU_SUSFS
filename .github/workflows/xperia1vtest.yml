@@ -8,7 +8,8 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
-          repository: LineageOS/android_kernel_sony_sm8550
+          # 📍 CORRECTED REPOSITORY HERE 📍
+          repository: spacealtctrl/android_kernel_sony_sm8550
           fetch-depth: 0
           
       - name: Clone Toolchains
@@ -66,8 +67,10 @@ jobs:
           # Clean build environment
           make ARCH=arm64 mrproper
           
-          # Configure kernel
-          make ARCH=arm64 O=out gki_defconfig
+          # 📍 CORRECT CONFIGURATION STEP 📍
+          # Use the specific defconfig for your device. This will load all necessary
+          # kernel configuration options, including those for hardware drivers.
+          make ARCH=arm64 O=out pdx234_defconfig
           
           # Build kernel with Clang and LLVM tools as specified
           make ARCH=arm64 \

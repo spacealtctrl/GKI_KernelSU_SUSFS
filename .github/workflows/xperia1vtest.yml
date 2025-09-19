@@ -5,11 +5,37 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+
+      - name: Cache Kernel Source
+        id: cache-kernel
+        uses: actions/cache@v3
+        with:
+          path: .
+          key: kernel-source-sm8550
+          
+      - name: Checkout Kernel Source
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: spacealtctrl/android_kernel_sony_sm8550
+          fetch-depth: 0
+
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: LineageOS/android_kernel_sony_sm8550
           fetch-depth: 0
+
+      - name: Cache Toolchains
+        id: cache-toolchains
+        uses: actions/cache@v3
+        with:
+          path: |
+            mk-clang
+            mk-gcc64
+            mk-gcc32
+            tools-lineage
+          key: toolchains-lineage-22.2
 
       - name: Clone Toolchains
         run: |

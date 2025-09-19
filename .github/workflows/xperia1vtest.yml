@@ -17,24 +17,23 @@ jobs:
 
       - name: Clone Devicetrees and Merge Bindings
         run: |
-          # Clone devicetrees
           rm -rf temp-devicetrees || true
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 temp-devicetrees
 
-          # Merge kernel dt-bindings into devicetree bindings
+          # Copy all dt-bindings headers from kernel into devicetree bindings
           cp -r kernel/include/dt-bindings/* temp-devicetrees/bindings/
 
-          # Move everything into kernel vendor directory
+          # Move merged devicetrees + bindings into kernel vendor directory
           rm -rf kernel/arch/arm64/boot/dts/vendor
           mv temp-devicetrees kernel/arch/arm64/boot/dts/vendor
 
-          # Create symlink so kernel finds dt-bindings headers
-          rm -rf kernel/include/dt-bindings
-          ln -s ../arch/arm64/boot/dts/vendor/bindings kernel/include/dt-bindings
-
-          echo "All DTS and bindings are in place. Symlink is correct."
-          ls -la kernel/include/dt-bindings
+          # Verify critical header exists
+          if [ ! -f kernel/arch/arm64/boot/dts/vendor/bindings/clock/qcom,gcc-kalama.h ]; then
+            echo "Error: dt-bindings header not found in vendor!"
+            exit 1
+          fi
+          echo "All DTS and bindings headers are in place for build."
 
       - name: Clone Toolchains
         run: |
@@ -62,7 +61,7 @@ jobs:
           export PATH=${{ github.workspace }}/mk-clang/bin:${{ github.workspace }}/mk-gcc64/bin:${{ github.workspace }}/mk-gcc32/bin:$PATH
           export LD_LIBRARY_PATH=${{ github.workspace }}/mk-clang/lib
 
-          export DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor"
+          export DTC_INCLUDE="-I arch/arm64/boot/dts/vendor"
           export DTC_FLAGS="-I arch/arm64/boot/dts/vendor"
 
           mkdir -p out
@@ -83,7 +82,7 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             LLVM_IAS=1 \
-            DTC_INCLUDE="-I include -I arch/arm64/boot/dts/vendor" \
+            DTC_INCLUDE="-I arch/arm64/boot/dts/vendor" \
             DTC_FLAGS="-I arch/arm64/boot/dts/vendor" \
             -j$(nproc)
 

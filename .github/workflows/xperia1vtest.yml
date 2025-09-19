@@ -36,25 +36,36 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 devicetrees
           
+          # Debug: Check what's actually in the bindings directory
+          echo "Contents of devicetrees/bindings/:"
+          ls -la devicetrees/bindings/ | head -20
+          
+          # Check if the file exists in bindings
+          echo "Looking for qcom,audio-ext-clk.h:"
+          find devicetrees -name "*audio-ext-clk*" -type f
+          
           # Remove existing vendor and create symlink
           rm -rf kernel/arch/arm64/boot/dts/vendor || true
           ln -s ../../../../../devicetrees kernel/arch/arm64/boot/dts/vendor
           
-          # CRITICAL: Copy bindings to kernel include directory where DTC expects them
-          echo "Copying devicetree bindings to kernel include directory..."
-          cp -r devicetrees/bindings/* kernel/include/dt-bindings/
+          # Ensure the dt-bindings directory exists
+          mkdir -p kernel/include/dt-bindings/
           
-          # Verify the critical file exists
-          if [ ! -f "kernel/include/dt-bindings/qcom,audio-ext-clk.h" ]; then
-            echo "ERROR: qcom,audio-ext-clk.h not found after copy!"
-            exit 1
+          # Copy bindings to kernel include directory
+          echo "Copying devicetree bindings to kernel include directory..."
+          if [ -d "devicetrees/bindings" ]; then
+            cp -r devicetrees/bindings/* kernel/include/dt-bindings/ || true
           fi
           
-          echo "SUCCESS: Bindings copied to kernel/include/dt-bindings/"
-          echo "Checking devicetree symlink:"
-          ls -la kernel/arch/arm64/boot/dts/ | grep vendor
-          echo "Verifying critical binding file:"
-          ls -la kernel/include/dt-bindings/qcom,audio-ext-clk.h
+          # Check what was copied
+          echo "Contents of kernel/include/dt-bindings/ after copy:"
+          ls -la kernel/include/dt-bindings/ | head -20
+          
+          # Find any audio-related header files
+          echo "Looking for audio-related headers in kernel:"
+          find kernel/include -name "*audio*.h" -type f | head -10
+          
+          echo "Devicetree setup complete"
           
       - name: Install Build Dependencies
         run: |

@@ -64,27 +64,21 @@ jobs:
       - name: Setup device trees
         run: |
           echo "Setting up Sony SM8550 devicetrees..."
-          # Remove the existing vendor directory/symlink if it exists
+          # Remove the existing vendor directory if it exists
           rm -rf arch/arm64/boot/dts/vendor
           
-          # Clone the devicetrees to the root of the workspace
+          # Clone the devicetrees directly into the kernel source tree
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
-            -b lineage-22.2 --depth=1 sm8550-devicetrees
-          
-          # Create the symlink with the correct relative path
-          # From arch/arm64/boot/dts/vendor to workspace root sm8550-devicetrees
-          cd arch/arm64/boot/dts/
-          ln -s ${{ github.workspace }}/sm8550-devicetrees vendor
-          cd ${{ github.workspace }}
+            -b lineage-22.2 --depth=1 arch/arm64/boot/dts/vendor
           
           echo "Devicetree structure:"
-          ls -la arch/arm64/boot/dts/
-          echo "Following symlink:"
           ls -la arch/arm64/boot/dts/vendor/
           echo "Checking qcom directory:"
           ls -la arch/arm64/boot/dts/vendor/qcom/ | head -10
           echo "DTS files found:"
           find arch/arm64/boot/dts/vendor -name "*.dts" -type f | head -5 || echo "No .dts files found"
+          echo "Checking for include files in kernel tree:"
+          find . -name "*audio-ext-clk*" -type f 2>/dev/null | head -5 || echo "No audio-ext-clk files found"
           
       - name: Install Build Dependencies
         run: |

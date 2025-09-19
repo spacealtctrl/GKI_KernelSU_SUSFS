@@ -26,7 +26,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git ccache flex bison libssl-dev bc python3 libelf-dev dwarves
-          # dwarves package provides pahole for BTF generation
           
       - name: Build Kernel
         run: |
@@ -60,32 +59,108 @@ jobs:
             CROSS_COMPILE_ARM32=${{ github.workspace }}/mk-gcc32/bin/arm-linux-androideabi- \
             KCFLAGS="-Wframe-larger-than=15000" \
             -j$(nproc)
-            
+          
+          # Verify kernel was built
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "Error: Kernel Image not found!"
+            exit 1
+          fi
+          
+          echo "Kernel Image size: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')"
+          
       - name: Create Boot Image
         run: |
+          # Check kernel image exists and size
+          ls -la ./out/arch/arm64/boot/Image
+          
           # Create boot.img using mkbootimg (Android 15 style with header_version 4)
           python3 ./mkbootimg_tools/mkbootimg.py \
             --header_version 4 \
             --kernel ./out/arch/arm64/boot/Image \
             --output boot_unsigned.img
-            
+          
+          # Verify boot image was created
+          if [ ! -f boot_unsigned.img ]; then
+            echo "Error: boot_unsigned.img not created!"
+            exit 1
+          fi
+          
+          echo "Unsigned boot image size: $(ls -lh boot_unsigned.img | awk '{print $5}')"
+          
       - name: Sign Boot Image
         run: |
-          # Generate a test signing key (for CI purposes)
+          # Generate a test signing key for AVB
           mkdir -p keys
           openssl genrsa -out keys/private_key.pem 2048
           
-          # Sign the boot image with AVB
+          # Sign the boot image with AVB (without --output flag, modifies in place)
           python3 ./avb_tools/avbtool.py add_hash_footer \
             --partition_name boot \
             --partition_size $((64 * 1024 * 1024)) \
             --image boot_unsigned.img \
             --algorithm SHA256_RSA2048 \
-            --key keys/private_key.pem \
-            --output boot.img
-            
+            --key keys/private_key.pem
+          
+          # Rename signed image
+          mv boot_unsigned.img boot.img
+          
+          # Verify final boot image
+          if [ ! -f boot.img ]; then
+            echo "Error: boot.img not created!"
+            exit 1
+          fi
+          
+          echo "Final boot image size: $(ls -lh boot.img | awk '{print $5}')"
+          
+          # Verify AVB signature
+          python3 ./avb_tools/avbtool.py info_image --image boot.img
+          
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: out/arch/arm64/boot/Image
+          
       - name: Upload Boot Image
         uses: actions/upload-artifact@v4
         with:
           name: boot-image
           path: boot.img
+          
+      - name: Upload DTB/DTBO if exists
+        uses: actions/upload-artifact@v4
+        with:
+          name: dtb-files
+          path: |
+            out/arch/arm64/boot/dts/**/*.dtb
+            out/arch/arm64/boot/dtbo.img
+          if-no-files-found: ignore
+          
+      - name: Upload Kernel Modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-modules
+          path: |
+            out/**/*.ko
+          if-no-files-found: ignore
+          
+      - name: Create Release Info
+        run: |
+          echo "# Build Information" > build_info.txt
+          echo "Date: $(date)" >> build_info.txt
+          echo "Kernel Version: $(cat out/include/config/kernel.release)" >> build_info.txt
+          echo "" >> build_info.txt
+          echo "## File Sizes:" >> build_info.txt
+          echo "- Kernel Image: $(ls -lh out/arch/arm64/boot/Image | awk '{print $5}')" >> build_info.txt
+          echo "- Boot Image: $(ls -lh boot.img | awk '{print $5}')" >> build_info.txt
+          echo "" >> build_info.txt
+          echo "## Build Configuration:" >> build_info.txt
+          echo "- Architecture: arm64" >> build_info.txt
+          echo "- Toolchain: Clang + LLVM" >> build_info.txt
+          echo "- Config: gki_defconfig" >> build_info.txt
+          
+      - name: Upload Build Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-info
+          path: build_info.txt

@@ -22,6 +22,15 @@ jobs:
           git clone https://github.com/spacealtctrl/android_kernel_sony_sm8550 \
             -b lineage-22.2 kernel
           echo "Kernel source cloned successfully"
+          
+          # Check what's in the kernel's dt-bindings/bindings
+          echo "Checking kernel's existing dt-bindings/bindings:"
+          if [ -d "kernel/include/dt-bindings/bindings" ]; then
+            echo "Found kernel/include/dt-bindings/bindings"
+            ls -la kernel/include/dt-bindings/bindings/ | head -10
+            echo "Looking for audio-ext-clk.h:"
+            find kernel/include/dt-bindings/bindings -name "*audio*" -ls
+          fi
 
       - name: Clone Devicetrees
         run: |
@@ -29,52 +38,58 @@ jobs:
           git clone https://github.com/LineageOS/android_kernel_sony_sm8550-devicetrees.git \
             -b lineage-22.2 --depth=1 devicetrees-temp
           echo "Devicetrees cloned successfully"
-          
-          # Check if the problematic file exists in devicetrees
-          echo "Checking for qcom,audio-ext-clk.h in devicetrees:"
-          find devicetrees-temp -name "*audio-ext-clk*" -ls
 
-      - name: Copy Devicetrees to Kernel
+      - name: Copy Devicetrees to Kernel (EXCLUDING bindings folder)
         run: |
           # Remove old vendor directory if exists
           rm -rf kernel/arch/arm64/boot/dts/vendor
+          mkdir -p kernel/arch/arm64/boot/dts/vendor
           
-          # Move entire devicetrees to vendor directory
-          mv devicetrees-temp kernel/arch/arm64/boot/dts/vendor
+          # Copy everything EXCEPT the bindings folder (it's just YAML docs)
+          find devicetrees-temp -maxdepth 1 -mindepth 1 ! -name bindings -exec cp -r {} kernel/arch/arm64/boot/dts/vendor/ \;
           
-          echo "Devicetrees copied to vendor directory"
+          # Clean up
+          rm -rf devicetrees-temp
+          
+          echo "Devicetrees copied to vendor directory (excluding bindings)"
           echo "Vendor directory contains:"
           ls -la kernel/arch/arm64/boot/dts/vendor/ | head -20
 
-      - name: Copy Kernel's dt-bindings CONTENTS to Vendor Directory
+      - name: Copy Kernel's dt-bindings to Vendor Directory
         run: |
-          echo "Copying contents of kernel/include/dt-bindings to vendor directory..."
+          echo "Copying kernel's dt-bindings contents to vendor directory..."
           
-          # Copy ALL CONTENTS of dt-bindings directly into vendor (merging with existing content)
+          # Copy ALL CONTENTS of dt-bindings directly into vendor
           cp -rf kernel/include/dt-bindings/* kernel/arch/arm64/boot/dts/vendor/
           
-          echo "Kernel dt-bindings contents merged into vendor directory"
+          echo "Kernel dt-bindings contents copied to vendor directory"
           echo "Vendor directory now contains:"
           ls -la kernel/arch/arm64/boot/dts/vendor/ | head -20
+          
+          # Specifically check for the bindings folder
+          if [ -d "kernel/arch/arm64/boot/dts/vendor/bindings" ]; then
+            echo "Bindings folder in vendor:"
+            ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -10
+          fi
 
       - name: Setup Include Paths for Build
         run: |
-          # Ensure bindings are in include path for compilation
           echo "Setting up include paths..."
           
-          # Copy vendor/bindings to kernel/include/bindings
+          # The kernel already has dt-bindings/bindings, just make sure it's accessible as <bindings/...>
           rm -rf kernel/include/bindings
-          if [ -d "kernel/arch/arm64/boot/dts/vendor/bindings" ]; then
+          
+          # Link or copy the kernel's dt-bindings/bindings to include/bindings
+          if [ -d "kernel/include/dt-bindings/bindings" ]; then
+            cp -r kernel/include/dt-bindings/bindings kernel/include/bindings
+            echo "Copied dt-bindings/bindings to include/bindings"
+          elif [ -d "kernel/arch/arm64/boot/dts/vendor/bindings" ]; then
             cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/bindings
             echo "Copied vendor/bindings to include/bindings"
           else
-            echo "WARNING: vendor/bindings directory not found!"
+            echo "ERROR: No bindings directory found!"
+            exit 1
           fi
-          
-          # ALSO copy the entire vendor directory contents to include for maximum compatibility
-          # This ensures any binding file can be found
-          echo "Copying all vendor headers to include paths..."
-          find kernel/arch/arm64/boot/dts/vendor -name "*.h" -exec cp --parents {} kernel/include/ \; 2>/dev/null || true
           
           echo "Include paths configured"
 
@@ -82,46 +97,25 @@ jobs:
         run: |
           echo "=== CRITICAL: Checking for qcom,audio-ext-clk.h ==="
           
-          echo "Searching for qcom,audio-ext-clk.h in all locations:"
+          echo "Searching for any audio-ext-clk files:"
           find kernel -name "*audio-ext-clk*" -ls 2>/dev/null
           
           echo ""
-          echo "Checking specific paths:"
-          
-          # Check if file exists in include/bindings
-          if [ -f "kernel/include/bindings/qcom,audio-ext-clk.h" ]; then
-            echo "✓ FOUND: kernel/include/bindings/qcom,audio-ext-clk.h"
-          else
-            echo "✗ NOT FOUND: kernel/include/bindings/qcom,audio-ext-clk.h"
-          fi
-          
-          # Check if file exists in vendor/bindings
-          if [ -f "kernel/arch/arm64/boot/dts/vendor/bindings/qcom,audio-ext-clk.h" ]; then
-            echo "✓ FOUND: kernel/arch/arm64/boot/dts/vendor/bindings/qcom,audio-ext-clk.h"
-          else
-            echo "✗ NOT FOUND: kernel/arch/arm64/boot/dts/vendor/bindings/qcom,audio-ext-clk.h"
+          echo "Checking include/bindings:"
+          if [ -d "kernel/include/bindings" ]; then
+            echo "Contents of include/bindings:"
+            ls -la kernel/include/bindings/ | head -10
+            echo "Looking for .h files:"
+            find kernel/include/bindings -name "*.h" | head -10
           fi
           
           echo ""
-          echo "=== General Structure Check ==="
-          
-          # Check vendor directory
-          if [ ! -d "kernel/arch/arm64/boot/dts/vendor" ]; then
-            echo "ERROR: Vendor directory not found!"
-            exit 1
-          fi
-          echo "✓ Vendor directory exists"
-          
-          # List what's in vendor/bindings
+          echo "Checking vendor/bindings:"
           if [ -d "kernel/arch/arm64/boot/dts/vendor/bindings" ]; then
-            echo "Contents of vendor/bindings (first 10 files):"
+            echo "Contents of vendor/bindings:"
             ls -la kernel/arch/arm64/boot/dts/vendor/bindings/ | head -10
-          fi
-          
-          # List what's in include/bindings
-          if [ -d "kernel/include/bindings" ]; then
-            echo "Contents of include/bindings (first 10 files):"
-            ls -la kernel/include/bindings/ | head -10
+            echo "Looking for .h files:"
+            find kernel/arch/arm64/boot/dts/vendor/bindings -name "*.h" | head -10
           fi
           
           # Check DTS files

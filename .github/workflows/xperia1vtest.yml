@@ -23,19 +23,6 @@ jobs:
             -b lineage-22.2 kernel
           echo "Kernel source cloned successfully"
 
-      - name: Copy Kernel's dt-bindings CONTENTS to Vendor Directory
-        run: |
-          echo "Copying contents of kernel/include/dt-bindings to vendor directory..."
-          # Create vendor directory if it doesn't exist
-          mkdir -p kernel/arch/arm64/boot/dts/vendor
-          
-          # Copy ALL CONTENTS of dt-bindings directly into vendor
-          cp -r kernel/include/dt-bindings/* kernel/arch/arm64/boot/dts/vendor/
-          
-          echo "Kernel dt-bindings contents copied to vendor directory"
-          echo "Vendor directory now contains:"
-          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -20
-
       - name: Clone Devicetrees
         run: |
           rm -rf devicetrees-temp || true
@@ -45,23 +32,35 @@ jobs:
 
       - name: Copy Devicetrees to Kernel
         run: |
-          # Copy bindings from devicetrees to vendor/bindings
-          echo "Copying devicetree bindings to vendor/bindings..."
-          cp -r devicetrees-temp/bindings kernel/arch/arm64/boot/dts/vendor/bindings
+          # Remove old vendor directory if exists
+          rm -rf kernel/arch/arm64/boot/dts/vendor
           
-          # Copy all other devicetree files to vendor directory
-          echo "Copying other devicetrees to vendor directory..."
-          find devicetrees-temp -maxdepth 1 -mindepth 1 ! -name bindings -exec cp -r {} kernel/arch/arm64/boot/dts/vendor/ \;
+          # Move entire devicetrees to vendor directory
+          mv devicetrees-temp kernel/arch/arm64/boot/dts/vendor
           
-          # Also ensure bindings are in include path for compilation
+          echo "Devicetrees copied to vendor directory"
+          echo "Vendor directory contains:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -20
+
+      - name: Copy Kernel's dt-bindings CONTENTS to Vendor Directory
+        run: |
+          echo "Copying contents of kernel/include/dt-bindings to vendor directory..."
+          
+          # Copy ALL CONTENTS of dt-bindings directly into vendor
+          cp -r kernel/include/dt-bindings/* kernel/arch/arm64/boot/dts/vendor/
+          
+          echo "Kernel dt-bindings contents copied to vendor directory"
+          echo "Vendor directory now contains:"
+          ls -la kernel/arch/arm64/boot/dts/vendor/ | head -20
+
+      - name: Setup Include Paths for Build
+        run: |
+          # Ensure bindings are in include path for compilation
           echo "Setting up include paths..."
           rm -rf kernel/include/bindings
           cp -r kernel/arch/arm64/boot/dts/vendor/bindings kernel/include/bindings
           
-          # Clean up
-          rm -rf devicetrees-temp
-          
-          echo "All devicetrees copied successfully"
+          echo "Include paths configured"
 
       - name: Check All Files Are in Correct Place
         run: |

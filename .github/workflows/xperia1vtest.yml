@@ -53,41 +53,61 @@ jobs:
         run: |
           echo "=== MERGING ALL BINDINGS ==="
           
-          # FORCE COPY 1: Merge into kernel/include/dt-bindings/bindings/
-          echo "Copying to dt-bindings/bindings..."
-          # Remove existing file/symlink if it exists
-          rm -rf kernel/include/dt-bindings/bindings
-          mkdir -p kernel/include/dt-bindings/bindings
-          cp -rf devicetrees-temp/bindings/* kernel/include/dt-bindings/bindings/ 2>/dev/null || true
-          echo "Files in dt-bindings/bindings: $(find kernel/include/dt-bindings/bindings -name "*.h" | wc -l)"
-          
-          # FORCE COPY 2: Create direct bindings path
-          echo "Copying to include/bindings..."
-          rm -rf kernel/include/bindings
-          mkdir -p kernel/include/bindings
-          cp -rf devicetrees-temp/bindings/* kernel/include/bindings/ 2>/dev/null || true
-          echo "Files in include/bindings: $(find kernel/include/bindings -name "*.h" | wc -l)"
-          
-          # FORCE COPY 3: Copy to vendor dts location
-          echo "Copying to vendor/bindings..."
-          rm -rf kernel/arch/arm64/boot/dts/vendor/bindings
-          mkdir -p kernel/arch/arm64/boot/dts/vendor/bindings
-          cp -rf devicetrees-temp/bindings/* kernel/arch/arm64/boot/dts/vendor/bindings/ 2>/dev/null || true
-          echo "Files in vendor/bindings: $(find kernel/arch/arm64/boot/dts/vendor/bindings -name "*.h" | wc -l)"
-          
-          # FORCE COPY 4: Also merge kernel's existing dt-bindings INTO the bindings folders
-          echo "Merging kernel's existing dt-bindings..."
+          # First, preserve existing kernel dt-bindings structure
+          echo "Preserving kernel's existing dt-bindings..."
           if [ -d "kernel/include/dt-bindings" ]; then
-            # Copy any existing kernel dt-bindings to all binding locations
-            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/include/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/include/dt-bindings/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -maxdepth 1 -name "*.h" -exec cp {} kernel/arch/arm64/boot/dts/vendor/bindings/ \; 2>/dev/null || true
-            
-            # Also copy subdirectories from dt-bindings
-            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/include/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/include/dt-bindings/bindings/ \; 2>/dev/null || true
-            find kernel/include/dt-bindings -mindepth 1 -maxdepth 1 -type d ! -name bindings -exec cp -r {} kernel/arch/arm64/boot/dts/vendor/bindings/ \; 2>/dev/null || true
+            cp -r kernel/include/dt-bindings kernel/include/dt-bindings.orig
           fi
+          
+          # Remove any existing bindings symlink/file that might conflict
+          rm -rf kernel/include/dt-bindings/bindings
+          rm -rf kernel/include/bindings
+          
+          # MERGE 1: Copy devicetree bindings to kernel/include/bindings
+          echo "Creating include/bindings with devicetree bindings..."
+          mkdir -p kernel/include/bindings
+          cp -rf devicetrees-temp/bindings/* kernel/include/bindings/
+          
+          # MERGE 2: Also copy to dt-bindings/bindings for compatibility
+          echo "Creating dt-bindings/bindings..."
+          mkdir -p kernel/include/dt-bindings/bindings
+          cp -rf devicetrees-temp/bindings/* kernel/include/dt-bindings/bindings/
+          
+          # MERGE 3: Merge original kernel dt-bindings back (but not the bindings subdir)
+          if [ -d "kernel/include/dt-bindings.orig" ]; then
+            echo "Merging original kernel dt-bindings..."
+            # Copy all files and directories except 'bindings'
+            find kernel/include/dt-bindings.orig -mindepth 1 -maxdepth 1 ! -name bindings -exec cp -r {} kernel/include/dt-bindings/ \;
+            rm -rf kernel/include/dt-bindings.orig
+          fi
+          
+          # MERGE 4: Copy to vendor location as well
+          echo "Copying to vendor/bindings..."
+          mkdir -p kernel/arch/arm64/boot/dts/vendor/bindings  
+          cp -rf devicetrees-temp/bindings/* kernel/arch/arm64/boot/dts/vendor/bindings/
+          
+          # CRITICAL FIX: For out-of-tree builds, we need to ensure includes work
+          # The DTS compilation looks in the source tree, so let's create a symlink
+          # from dt-bindings to bindings for the include path
+          echo "Setting up include paths for out-of-tree build..."
+          cd kernel/include
+          if [ ! -e bindings ]; then
+            echo "ERROR: bindings directory was not created!"
+            exit 1
+          fi
+          # Ensure dt-bindings/bindings exists and has content
+          ls -la dt-bindings/bindings/ | head -5
+          ls -la bindings/ | head -5
+          cd ../..
+          
+          echo "Total binding files:"
+          echo "  - include/bindings: $(find kernel/include/bindings -name "*.h" | wc -l)"
+          echo "  - dt-bindings/bindings: $(find kernel/include/dt-bindings/bindings -name "*.h" | wc -l)"
+          echo "  - vendor/bindings: $(find kernel/arch/arm64/boot/dts/vendor/bindings -name "*.h" | wc -l)"
+          
+          # Check specifically for the file that's failing
+          echo "Checking for qcom,audio-ext-clk.h..."
+          find kernel -name "qcom,audio-ext-clk.h" -ls
           
           # Clean up temp directory
           rm -rf devicetrees-temp
